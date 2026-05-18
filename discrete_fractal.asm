@@ -292,9 +292,9 @@ _start:
 
     ; Reguła istnieje i depth > 0 -> Wypchnięcie nowej ramki na stos (push)
     ; Sprawdzenie, czy na stosie jest wolne miejsce (wymagane kolejne 24 bajty)
-    mov     r11, r12
-    add     r11, 24                     ; r11 = potencjalny nowy wierzchołek stosu
-    cmp     r11, [stack_cap]
+    mov     rax, r12
+    add     rax, 24                     ; rax = potencjalny nowy wierzchołek stosu
+    cmp     rax, [stack_cap]
     jbe     .stack_space_ok
 
     ; Dynamiczne powiększenie stosu w razie skomplikowanych i głębokich fraktali
@@ -308,7 +308,7 @@ _start:
     mov     rsi, [stack_cap]            ; rsi = old_size
     mov     r10, 1                      ; MREMAP_MAYMOVE
     mov     rax, 25                     ; sys_mremap
-    syscall
+    syscall                             ; clobbers: rax, rcx, r11
     pop     rdx
     pop     r9
     pop     r8
@@ -318,16 +318,15 @@ _start:
     shl     qword [stack_cap], 1        ; Podwojenie zanotowanej pojemności stosu
 
 .stack_space_ok:
-    ; POPRAWKA: Zapisanie nowej ramki na wierzchu stosu poprzez załadowany uprzednio wskaźnik r15
+    ; Zapisanie nowej ramki na wierzchu stosu poprzez załadowany uprzednio wskaźnik r15
     mov     r15, [stack_buf]
     mov     [r15 + r12], r8             ; nowa ramka.curr_ptr = rule_ptr
     add     r8, r9
     mov     [r15 + r12 + 8], r8         ; nowa ramka.end_ptr = rule_ptr + rule_len
     dec     rdx                         ; nowa ramka.depth = depth - 1
     mov     [r15 + r12 + 16], rdx
-    mov     r12, r11                    ; Oficjalne przesunięcie wskaźnika wierzchołka stosu
+    add     r12, 24                     ; Oficjalne, bezpieczne przesunięcie wskaźnika
     jmp     .stack_loop
-
 .output_char:
     ; Dopisanie znaku z rbx do stałego bufora wyjściowego
     mov     rax, [out_len]
