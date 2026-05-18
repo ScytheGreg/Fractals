@@ -23,4 +23,4 @@ fuzz:
 .PHONY: all clean bench fuzz
 
 clean:
-	rm -f discrete_fractal
+	rm -f discrete_fractal mem_search
