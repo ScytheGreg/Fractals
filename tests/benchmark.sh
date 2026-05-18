@@ -67,7 +67,7 @@ run_bench "Przypadek brzegowy n=0" "0" "$TEST_1_INP"
 # Klasyczny system Algae (A -> AB, B -> A). Długość ciągu rośnie jak ciąg Fibonacciego.
 # Dla n=25 wygeneruje ciąg o długości 121393 znaków, ale przy n=28 to już miliony operacji.
 # Pamięć powinna pozostać minimalna, rzędu kilku megabajtów (głównie bufor wejściowy).
-TEST_2_INP=$(printf "A\nAAB\nBA\n")
+TEST_2_INP=$(printf "A\nAABA\nBAB\n")
 run_bench "Strumieniowanie - System Algae (Średnie obciążenie)" "24" "$TEST_2_INP"
 
 # ------------------------------------------------------------------------------
