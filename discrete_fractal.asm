@@ -1,12 +1,12 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Program: discrete_fractal
 ; Opis: Generuje dyskretne fraktale (L-systemy) przy użyciu jawnego stosu (DFS).
-;       Rozwiązanie eliminuje wykładniczy wzrost pamięci poprzez strumieniowanie
-;       wyniku bezpośrednio na stdout za pomocą bufora o stałym rozmiarze.
+;        Rozwiązanie eliminuje wykładniczy wzrost pamięci poprzez strumieniowanie
+;        wyniku bezpośrednio na stdout za pomocą bufora o stałym rozmiarze.
 ; Architektura: x86-64 Linux (NASM)
 ; Rejestry globalne w pętli głównej (.stack_loop):
-;   r12 - aktualny wskaźnik wierzchołka stosu (stack_top jako offset bajtowy)
-;   rbx - aktualnie przetwarzany znak (rozszerzony do 64-bitów)
+;    r12 - aktualny wskaźnik wierzchołka stosu (stack_top jako offset bajtowy)
+;    rbx - aktualnie przetwarzany znak (rozszerzony do 64-bitów)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 default rel
@@ -17,7 +17,7 @@ global _start
 _start:
     ; Sprawdzenie liczby argumentów (argc musi wynosić dokładnie 2)
     mov     rbp, [rsp]                  ; rbp = argc
-    cmp     rbp, 2
+    cmp     rbp, [required_argc]
     jne     error_exit_no_free          ; Błąd jeśli argc != 2
 
     ; Parsowanie parametru n (argv[1])
@@ -36,11 +36,11 @@ _start:
     sub     cl, '0'                     ; Konwersja ASCII na cyfrę
 
     ; Kontrola przepełnienia 32-bitowego przed mnożeniem (max n = 4294967295)
-    mov     rdx, 429496729
+    mov     rdx, [max_n_limit]
     cmp     rax, rdx
     ja      error_exit_no_free          ; rax > 429496729 -> przepełnienie po mnożeniu
     jne     .multiply
-    cmp     rcx, 5
+    cmp     rcx, [max_n_digit]
     ja      error_exit_no_free          ; rax == 429496729 i nowa cyfra > 5 -> przepełnienie
 
 .multiply:
@@ -64,27 +64,28 @@ _start:
 
     ; Alokacja początkowego bufora na całe wejście (1MB) za pomocą sys_mmap
     mov     rdi, 0                      ; System wybiera adres
-    mov     rsi, 1048576                ; Rozmiar początkowy = 1MB
-    mov     rdx, 3                      ; PROT_READ | PROT_WRITE
-    mov     r10, 0x22                   ; MAP_PRIVATE | MAP_ANONYMOUS
+    mov     rsi, [initial_buf_size]     ; Rozmiar początkowy = 1MB
+    mov     rdx, [prot_rw]              ; PROT_READ | PROT_WRITE
+    mov     r10, [map_priv_anon]        ; MAP_PRIVATE | MAP_ANONYMOUS
     mov     r8, -1                      ; Brak pliku
     mov     r9, 0                       ; Offset = 0
-    mov     rax, 9                      ; sys_mmap
+    mov     rax, [sys_mmap_num]         ; sys_mmap
     syscall
-    cmp     rax, -4095
+    cmp     rax, [max_errno]
     jae     error_exit_no_free          ; Błąd alokacji
     mov     [input_buf], rax
-    mov     qword [input_cap], 1048576
+    mov     rcx, [initial_buf_size]
+    mov     [input_cap], rcx
     mov     qword [input_len], 0
 
     ; Pętla wczytywania całego standardowego wejścia
 .read_loop:
-    mov     rdi, 0                      ; Stdin
+    mov     rdi, [stdin_fd]             ; Stdin
     mov     rsi, [input_buf]
     add     rsi, [input_len]            ; Adres zapisu = początek + aktualny rozmiar
     mov     rdx, [input_cap]
     sub     rdx, [input_len]            ; rdx = pozostała pojemność bufora
-    mov     rax, 0                      ; sys_read
+    mov     rax, [sys_read_num]         ; sys_read
     syscall
 
     cmp     rax, 0
@@ -103,10 +104,10 @@ _start:
     shl     rsi, 1                      ; Nowy rozmiar = stary * 2
     mov     rdx, rsi                    ; Przekazanie do rdx jako new_size
     mov     rsi, [input_cap]            ; Ponowne załadowanie old_size do rsi
-    mov     r10, 1                      ; MREMAP_MAYMOVE
-    mov     rax, 25                     ; sys_mremap
+    mov     r10, [mremap_maymove]       ; MREMAP_MAYMOVE
+    mov     rax, [sys_mremap_num]       ; sys_mremap
     syscall
-    cmp     rax, -4095
+    cmp     rax, [max_errno]
     jae     error_cleanup_exit          ; Błąd powiększania pamięci
 
     mov     [input_buf], rax
@@ -124,12 +125,12 @@ _start:
 .find_start_nl:
     cmp     rbx, rdi
     jae     error_cleanup_exit          ; Brak znaku nowej linii -> błąd
-    cmp     byte [rbx], 10              ; Czy to '\n'?
-    je      .found_start_nl
     mov     al, [rbx]
-    cmp     al, 33
+    cmp     al, [char_lf]               ; Czy to '\n'?
+    je      .found_start_nl
+    cmp     al, [min_ascii]
     jb      error_cleanup_exit          ; Niepoprawny symbol (< 33)
-    cmp     al, 126
+    cmp     al, [max_ascii]
     ja      error_cleanup_exit          ; Niepoprawny symbol (> 126)
     inc     rbx
     jmp     .find_start_nl
@@ -151,16 +152,17 @@ _start:
     sub     rcx, rbx
     cmp     rcx, 1
     jne     .not_trailing_nl
-    cmp     byte [rbx], 10
+    mov     al, [char_lf]
+    cmp     [rbx], al
     je      .parsing_finished
 
 .not_trailing_nl:
     ; Pobranie symbolu, który ma być zastępowany
     xor     eax, eax
     mov     al, [rbx]
-    cmp     al, 33
+    cmp     al, [min_ascii]
     jb      error_cleanup_exit
-    cmp     al, 126
+    cmp     al, [max_ascii]
     ja      error_cleanup_exit
 
     ; Sprawdzenie unikalności reguły (maksymalnie jedna reguła na symbol)
@@ -176,12 +178,12 @@ _start:
 .find_rule_nl:
     cmp     rcx, rdi
     jae     error_cleanup_exit          ; Brak domykającego '\n' -> błąd
-    cmp     byte [rcx], 10
-    je      .found_rule_nl
     mov     r9b, [rcx]
-    cmp     r9b, 33
+    cmp     r9b, [char_lf]
+    je      .found_rule_nl
+    cmp     r9b, [min_ascii]
     jb      error_cleanup_exit
-    cmp     r9b, 126
+    cmp     r9b, [max_ascii]
     ja      error_cleanup_exit
     inc     rcx
     jmp     .find_rule_nl
@@ -202,31 +204,32 @@ _start:
 .parsing_finished:
     ; Alokacja stałego bufora wyjściowego (64 KB) - optymalny rozmiar dla sys_write
     mov     rdi, 0
-    mov     rsi, 65536
-    mov     rdx, 3                      ; PROT_READ | PROT_WRITE
-    mov     r10, 0x22                   ; MAP_PRIVATE | MAP_ANONYMOUS
+    mov     rsi, [out_buf_size]         ; 65536
+    mov     rdx, [prot_rw]
+    mov     r10, [map_priv_anon]
     mov     r8, -1
     mov     r9, 0
-    mov     rax, 9                      ; sys_mmap
+    mov     rax, [sys_mmap_num]
     syscall
-    cmp     rax, -4095
+    cmp     rax, [max_errno]
     jae     error_cleanup_exit
     mov     [out_buf], rax
     mov     qword [out_len], 0
 
     ; Alokacja początkowego bufora na jawny stos DFS (1MB)
     mov     rdi, 0
-    mov     rsi, 1048576                ; 1MB pojemności początkowej
-    mov     rdx, 3
-    mov     r10, 0x22
+    mov     rsi, [initial_buf_size]     ; 1MB pojemności początkowej
+    mov     rdx, [prot_rw]
+    mov     r10, [map_priv_anon]
     mov     r8, -1
     mov     r9, 0
-    mov     rax, 9                      ; sys_mmap
+    mov     rax, [sys_mmap_num]
     syscall
-    cmp     rax, -4095
+    cmp     rax, [max_errno]
     jae     error_cleanup_exit
     mov     [stack_buf], rax
-    mov     qword [stack_cap], 1048576
+    mov     rcx, [initial_buf_size]
+    mov     [stack_cap], rcx
 
     ; Pobieramy adres zwracanego bufora mmap do r15 i na niego zapisujemy ramkę
     mov     r15, [stack_buf]
@@ -236,7 +239,7 @@ _start:
     mov     [r15 + 8], rax              ; frame.end_ptr = start_ptr + start_len
     mov     rcx, [target_n]
     mov     [r15 + 16], rcx             ; frame.depth = n
-    mov     r12, 24                     ; r12 = stack_top (offset kolejnej wolnej ramki)
+    mov     r12, [frame_size]           ; r12 = stack_top (offset kolejnej wolnej ramki = 24)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Główna pętla sterująca jawnym stosem DFS
@@ -247,7 +250,7 @@ _start:
 
     ; Podejrzenie ramki na wierzchołku stosu (offset: r12 - 24)
     mov     rax, r12
-    sub     rax, 24
+    sub     rax, [frame_size]
 
     ; Ładujemy rzeczywisty wskaźnik na bufor stosu do rejestru bazowego r15
     mov     r15, [stack_buf]
@@ -276,7 +279,7 @@ _start:
     test    rdx, rdx
     jz      .output_char
 
-    ; Sprawdzenie czy istnieje reguła zamiany dla znaku rbx
+    ; Sprawdzenie czy existe reguła zamiany dla znaku rbx
     mov     rcx, rbx
     shl     rcx, 4                      ; rbx * 16 (indeksowanie tabeli)
 
@@ -293,7 +296,7 @@ _start:
     ; Reguła istnieje i depth > 0 -> Wypchnięcie nowej ramki na stos (push)
     ; Sprawdzenie, czy na stosie jest wolne miejsce (wymagane kolejne 24 bajty)
     mov     rax, r12
-    add     rax, 24                     ; rax = potencjalny nowy wierzchołek stosu
+    add     rax, [frame_size]           ; rax = potencjalny nowy wierzchołek stosu
     cmp     rax, [stack_cap]
     jbe     .stack_space_ok
 
@@ -306,13 +309,13 @@ _start:
     shl     rsi, 1                      ; new_size = old_size * 2
     mov     rdx, rsi                    ; rdx = new_size
     mov     rsi, [stack_cap]            ; rsi = old_size
-    mov     r10, 1                      ; MREMAP_MAYMOVE
-    mov     rax, 25                     ; sys_mremap
+    mov     r10, [mremap_maymove]
+    mov     rax, [sys_mremap_num]       ; sys_mremap
     syscall                             ; clobbers: rax, rcx, r11
     pop     rdx
     pop     r9
     pop     r8
-    cmp     rax, -4095
+    cmp     rax, [max_errno]
     jae     error_cleanup_exit
     mov     [stack_buf], rax
     shl     qword [stack_cap], 1        ; Podwojenie zanotowanej pojemności stosu
@@ -325,8 +328,9 @@ _start:
     mov     [r15 + r12 + 8], r8         ; nowa ramka.end_ptr = rule_ptr + rule_len
     dec     rdx                         ; nowa ramka.depth = depth - 1
     mov     [r15 + r12 + 16], rdx
-    add     r12, 24                     ; Oficjalne, bezpieczne przesunięcie wskaźnika
+    add     r12, [frame_size]           ; Oficjalne, bezpieczne przesunięcie wskaźnika
     jmp     .stack_loop
+
 .output_char:
     ; Dopisanie znaku z rbx do stałego bufora wyjściowego
     mov     rax, [out_len]
@@ -335,8 +339,8 @@ _start:
     inc     rax
     mov     [out_len], rax
 
-    ; Jeśli bufor osiągnął 64KB (65536 bajtów), opróżniamy go na stdout
-    cmp     rax, 65536
+    ; Jeśli bufor osiągnął maksymalny rozmiar, opróżniamy go na stdout
+    cmp     rax, [out_buf_size]
     jne     .stack_loop
 
     ; Opróżnianie bufora (flush) na standardowe wyjście
@@ -344,12 +348,12 @@ _start:
 .flush_loop:
     cmp     r14, [out_len]
     jae     .flush_done
-    mov     rdi, 1                      ; Stdout
+    mov     rdi, [stdout_fd]            ; Stdout
     mov     rsi, [out_buf]
     add     rsi, r14
     mov     rdx, [out_len]
     sub     rdx, r14                    ; Pozostałe bajty do wysłania
-    mov     rax, 1                      ; sys_write
+    mov     rax, [sys_write_num]        ; sys_write
     syscall
     cmp     rax, 0
     jle     error_cleanup_exit          ; Błąd zapisu
@@ -370,12 +374,12 @@ _start:
 .final_flush_loop:
     cmp     r14, [out_len]
     jae     .write_newline
-    mov     rdi, 1                      ; Stdout
+    mov     rdi, [stdout_fd]            ; Stdout
     mov     rsi, [out_buf]
     add     rsi, r14
     mov     rdx, [out_len]
     sub     rdx, r14
-    mov     rax, 1                      ; sys_write
+    mov     rax, [sys_write_num]        ; sys_write
     syscall
     cmp     rax, 0
     jle     error_cleanup_exit
@@ -384,9 +388,9 @@ _start:
 
 .write_newline:
     ; Wypisanie obowiązkowego znaku nowej linii na końcu działania programu
-    mov     rax, 1                      ; sys_write
-    mov     rdi, 1                      ; Stdout
-    push    10                          ; Kod znaku '\n' na stos
+    mov     rax, [sys_write_num]        ; sys_write
+    mov     rdi, [stdout_fd]            ; Stdout
+    push    qword [char_lf_qword]       ; Kod znaku '\n' na stos jako qword
     mov     rsi, rsp                    ; Wskazanie na szczyt stosu jako bufor danych
     mov     rdx, 1
     syscall
@@ -396,12 +400,12 @@ _start:
 
     ; Poprawne zakończenie działania programu z kodem 0
     call    free_all_buffers            ; Jawne zwolnienie wszystkich zasobów systemowych
-    mov     rax, 60                     ; sys_exit
+    mov     rax, [sys_exit_num]         ; sys_exit
     mov     rdi, 0                      ; Kod wyjścia = 0
     syscall
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Sekcja czyszczenia i procedury obsługi błędów
+; Procedury obsługi błędów i czyszczenia
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 free_all_buffers:
@@ -410,15 +414,15 @@ free_all_buffers:
     test    rdi, rdi
     jz      .free_out
     mov     rsi, [input_cap]
-    mov     rax, 11                     ; sys_munmap
+    mov     rax, [sys_munmap_num]       ; sys_munmap
     syscall
 .free_out:
-    ; Zwolnienie stałego bufora wyjściowego (zawsze 64KB)
+    ; Zwolnienie stałego bufora wyjściowego
     mov     rdi, [out_buf]
     test    rdi, rdi
     jz      .free_stack
-    mov     rsi, 65536
-    mov     rax, 11                     ; sys_munmap
+    mov     rsi, [out_buf_size]
+    mov     rax, [sys_munmap_num]       ; sys_munmap
     syscall
 .free_stack:
     ; Zwolnienie bufora stosu DFS
@@ -426,43 +430,82 @@ free_all_buffers:
     test    rdi, rdi
     jz      .done
     mov     rsi, [stack_cap]
-    mov     rax, 11                     ; sys_munmap
+    mov     rax, [sys_munmap_num]       ; sys_munmap
     syscall
 .done:
     ret
 
 error_exit_no_free:
     ; Wywoływane przed jakąkolwiek alokacją pamięci
-    mov     rax, 60                     ; sys_exit
+    mov     rax, [sys_exit_num]         ; sys_exit
     mov     rdi, 1                      ; Kod błędu = 1
     syscall
 
 error_cleanup_exit:
     ; Gwarantuje jawne zwolnienie pamięci w przypadku jakiegokolwiek błędu w trakcie działania
     call    free_all_buffers
-    mov     rax, 60                     ; sys_exit
+    mov     rax, [sys_exit_num]         ; sys_exit
     mov     rdi, 1                      ; Kod błędu = 1
     syscall
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Sekcja danych tylko do odczytu (.rodata)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+section .rodata
+align 8
+; Numery wywołań systemowych (Syscalls)
+sys_read_num:       dq 0
+sys_write_num:      dq 1
+sys_mmap_num:       dq 9
+sys_munmap_num:     dq 11
+sys_mremap_num:     dq 25
+sys_exit_num:       dq 60
+
+; Deskryptory standardowych strumieni
+stdin_fd:           dq 0
+stdout_fd:          dq 1
+
+; Konfiguracja rozmiarów buforów
+initial_buf_size:   dq 1048576          ; Początkowy rozmiar bufora (1MB)
+out_buf_size:       dq 65536            ; Rozmiar stałego bufora wyjściowego (64KB)
+frame_size:         dq 24               ; Rozmiar pojedynczej ramki stosu DFS (3 * 8 bajtów)
+
+; Flagi i stałe jądra Linux
+prot_rw:            dq 3                ; PROT_READ | PROT_WRITE
+map_priv_anon:      dq 0x22             ; MAP_PRIVATE | MAP_ANONYMOUS
+mremap_maymove:     dq 1                ; MREMAP_MAYMOVE
+max_errno:          dq -4095            ; Granica błędu zwracanego przez kernel
+
+; Stałe walidacji parsowania liczby n oraz argumentów
+required_argc:      dq 2
+max_n_limit:        dq 429496729        ; Próg zabezpieczający przed przepełnieniem
+max_n_digit:        dq 5
+
+; Stałe znakowe i granice ASCII
+min_ascii:          db 33               ; Pierwszy drukowalny znak ('!')
+max_ascii:          db 126              ; Ostatni drukowalny znak ('~')
+char_lf:            db 10               ; Kod znaku nowej linii '\n' (bajt)
+char_lf_qword:      dq 10               ; Kod znaku nowej linii '\n' (qword dla push)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Sekcja danych niezainicjalizowanych (.bss)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 section .bss
 align 8
-target_n:    resq 1                     ; Docelowa liczba iteracji n obliczona ze strumienia wejściowego
+target_n:    resq 1                      ; Docelowa liczba iteracji n obliczona ze strumienia wejściowego
 
-input_buf:   resq 1                     ; Adres bufora na surowe wejście ze stdin
-input_cap:   resq 1                     ; Pojemność bufora wejściowego
-input_len:   resq 1                     ; Rozmiar wczytanych danych ze stdin
+input_buf:   resq 1                      ; Adres bufora na surowe wejście ze stdin
+input_cap:   resq 1                      ; Pojemność bufora wejściowego
+input_len:   resq 1                      ; Rozmiar wczytanych danych ze stdin
 
-start_ptr:   resq 1                     ; Wskaźnik na początek ciągu startowego wewnątrz bufora wejściowego
-start_len:   resq 1                     ; Długość ciągu startowego
+start_ptr:   resq 1                      ; Wskaźnik na początek ciągu startowego wewnątrz bufora wejściowego
+start_len:   resq 1                      ; Długość ciągu startowego
 
-out_buf:     resq 1                     ; Adres stałego bufora wyjściowego (64KB)
-out_len:     resq 1                     ; Liczba nieopróżnionych bajtów w buforze wyjściowym
+out_buf:     resq 1                      ; Adres stałego bufora wyjściowego (64KB)
+out_len:     resq 1                      ; Liczba nieopróżnionych bajtów w buforze wyjściowym
 
-stack_buf:   resq 1                     ; Adres dynamicznego bufora dla jawnego stosu DFS
-stack_cap:   resq 1                     ; Aktualna pojemność bufora stosu w bajtach
+stack_buf:   resq 1                      ; Adres dynamicznego bufora dla jawnego stosu DFS
+stack_cap:   resq 1                      ; Aktualna pojemność bufora stosu w bajtach
 
 ; Tablica asocjacyjna reguł zamiany: kod ASCII (0-255) -> struktura {wskaźnik, długość}.
 ; Rozmiar: 256 wpisów * 16 bajtów = 4096 bajtów.

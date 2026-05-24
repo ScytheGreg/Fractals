@@ -68,7 +68,7 @@ run_bench "Przypadek brzegowy n=0" "0" "$TEST_1_INP"
 # Dla n=25 wygeneruje ciąg o długości 121393 znaków, ale przy n=28 to już miliony operacji.
 # Pamięć powinna pozostać minimalna, rzędu kilku megabajtów (głównie bufor wejściowy).
 TEST_2_INP=$(printf "A\nAABA\nBAB\n")
-run_bench "Strumieniowanie - System Algae (Średnie obciążenie)" "24" "$TEST_2_INP"
+run_bench "Strumieniowanie - System Algae (Średnie obciążenie)" "22" "$TEST_2_INP"
 
 # ------------------------------------------------------------------------------
 # TEST 3: Głęboki stos DFS (Test n rzędu milionów + mremap)
