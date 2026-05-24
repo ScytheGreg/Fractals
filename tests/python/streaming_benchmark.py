@@ -99,7 +99,14 @@ if __name__ == "__main__":
     # Dla n=26 wygeneruje 242 786 znaków (szybki test)
     # Dla n=32 wygeneruje 7 049 123 znaków
     # Możesz tu bezpiecznie wpisać większe n, np. 35, jeśli chcesz solidnie obciążyć procesor
+
     AXIOM = "A"
     RULES = ["AAB", "BAB"]
 
     run_streaming_test(n=24, axiom=AXIOM, rules_list=RULES)
+
+    AXIOM = "A"
+    RULES = [chr(i) + chr(i)+ chr(i) for i in range(33, ord('A'))] + [chr(i) + chr(i) + chr(i) for i in range(ord('A') + 1, 126)] + ["AAAB"]
+
+    run_streaming_test(n=20, axiom=AXIOM, rules_list=RULES)
+
