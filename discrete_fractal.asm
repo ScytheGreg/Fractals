@@ -4,13 +4,17 @@ section .rodata
     STD_IN_FD       equ 0
     SYS_WRITE       equ 1
     STD_OUT_FD      equ 1
+    SYS_MMAP        equ 9
+
+    PROT_FLAGS      equ 3      ; PROT_READ | PROT_WRITE
+    MAP_FLAFS       equ 0x22   ; MAP_PRIVATE | MAP_ANONYMOUS
 
 section .bss
     align 8
     target_n resq 1
 
-    read_buf    resb 4096      ; At this moment fixed size buffer
-    read_size   resq 1
+    read_buf    resq 1      ; Read buffer beggining pointer
+    read_size   resq 1      ; Input length
 
 section .text
 global _start
@@ -43,16 +47,23 @@ _start:
     add  edi, ebx       ; add current  digit to result
     jc   .exit_error    ; overflow
 
-    inc rcx             ; ++i
+    inc rcx                 ; ++i
     jmp .parse_n_loop
 
 .parse_n_done:
     mov [rel target_n], rdi ; Save n in a global variable
 
 
-;%%%% READ START STRING %%%%%
+;%%%% READ INPUT to READ BUFFER %%%%%
+
+    ; Init read buffer
+    xor rbx, rbx            ; Size of allocated memory for read buffer
 
 .read_loop:
+
+    ; Make space for
+
+
     mov rax, SYS_READ
     mov rdi, STD_IN_FD
     lea rsi, [rel read_buf]
