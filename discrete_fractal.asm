@@ -1,5 +1,7 @@
 section .rodata
     SYS_EXIT        equ 60
+    SYS_READ        equ 0
+    STD_IN_FD       equ 0
     SYS_WRITE       equ 1
     STD_OUT_FD      equ 1
 
@@ -7,11 +9,14 @@ section .bss
     align 8
     target_n resq 1
 
+    read_buf    resb 4096      ; At this moment fixed size buffer
+    read_size   resq 1
+
 section .text
 global _start
 
 _start:
-    ; Wczytanie parametru n
+;%%%%% PARSE 'n' PARAMETER %%%%%
     mov rbp, [rsp]      ; if(argc != 2)
     cmp rbp, 2          ;   exit(1)
     jne .exit_error
@@ -42,8 +47,29 @@ _start:
     jmp .parse_n_loop
 
 .parse_n_done:
-    mov [rel target_n], rdi ; Save n in global variable
+    mov [rel target_n], rdi ; Save n in a global variable
 
+
+;%%%% READ START STRING %%%%%
+
+.read_loop:
+    mov rax, SYS_READ
+    mov rdi, STD_IN_FD
+    lea rsi, [rel read_buf]
+    mov rdx, 4              ; Max number of read characters - just for tests
+    syscall
+
+    test rax, rax           ; if EOF
+    jz .read_done           ;   break
+
+    cmp rax, -4095          ; Read error
+    jae .exit_error         ;   exit(1)
+
+    add [rel read_size], rax ; Add number of read digits to string length
+    jmp .read_loop
+
+.read_done:
+    mov rax, [rel read_size]
 
 .exit:
     xor rdi, rdi
