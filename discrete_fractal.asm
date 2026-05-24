@@ -33,8 +33,10 @@ _start:
 
     sub rbx, '0'
 
-    imul rdi, 10        ; result_n *= 10
-    add  rdi, rbx       ; add current  digit to result
+    imul edi, 10        ; result_n *= 10
+    jc   .exit_error    ; overflow
+    add  edi, ebx       ; add current  digit to result
+    jc   .exit_error    ; overflow
 
     inc rcx             ; ++i
     jmp .parse_n_loop

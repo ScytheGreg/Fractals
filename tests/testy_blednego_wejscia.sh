@@ -20,7 +20,7 @@ done
 
 for n in '' ' ' 'a' 'A' '-1' '4294967296' '10000000000000000000'
 do
-    echo "Testowanie błędnego n = $n."
+    echo "Testowanie błędnego n = $n"
     echo "" | $1 $n > /dev/null
 
     if [ $? -ne 1 ]
