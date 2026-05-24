@@ -3,10 +3,8 @@
 ; Opis: Generuje dyskretne fraktale (L-systemy) przy użyciu jawnego stosu (DFS).
 ;        Rozwiązanie eliminuje wykładniczy wzrost pamięci poprzez strumieniowanie
 ;        wyniku bezpośrednio na stdout za pomocą bufora o stałym rozmiarze.
+;        Tablica reguł jest dynamiczna i dopasowana do liczby reguł.
 ; Architektura: x86-64 Linux (NASM)
-; Rejestry globalne w pętli głównej (.stack_loop):
-;    r12 - aktualny wskaźnik wierzchołka stosu (stack_top jako offset bajtowy)
-;    rbx - aktualnie przetwarzany znak (rozszerzony do 64-bitów)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 default rel
@@ -77,6 +75,22 @@ _start:
     mov     rcx, [initial_buf_size]
     mov     [input_cap], rcx
     mov     qword [input_len], 0
+
+    ; Alokacja początkowego dynamicznego bufora na reguły (jedna strona jądra = 4KB)
+    mov     rdi, 0
+    mov     rsi, [initial_rules_cap]
+    mov     rdx, [prot_rw]
+    mov     r10, [map_priv_anon]
+    mov     r8, -1
+    mov     r9, 0
+    mov     rax, [sys_mmap_num]
+    syscall
+    cmp     rax, [max_errno]
+    jae     error_cleanup_exit          ; Jeśli zawiedzie, czyścimy zaalokowany input_buf
+    mov     [rules_buf], rax
+    mov     rcx, [initial_rules_cap]
+    mov     [rules_cap], rcx
+    mov     qword [rules_count], 0
 
     ; Pętla wczytywania całego standardowego wejścia
 .read_loop:
@@ -165,14 +179,27 @@ _start:
     cmp     al, [max_ascii]
     ja      error_cleanup_exit
 
-    ; Sprawdzenie unikalności reguły (maksymalnie jedna reguła na symbol)
-    mov     r13, rax
-    shl     r13, 4                      ; Indeksowanie tablicy (16 bajtów na wpis)
-    lea     r14, [rules_table]
-    add     r14, r13
-    cmp     qword [r14], 0              ; Sprawdzenie czy wskaźnik jest już ustawiony
-    jne     error_cleanup_exit          ; Zmienione bne -> jne
+    ; Sprawdzenie unikalności reguły (w dynamicznej tablicy strukturyzowanej)
+    mov     r13, [rules_buf]
+    xor     r14, r14                    ; Indeks pętli unikalności
+.check_uniq_loop:
+    cmp     r14, [rules_count]
+    jae     .uniq_ok
 
+    ; Przesunięcie w tablicy reguł: r14 * 24 (16 + 8)
+    mov     r15, r14
+    shl     r15, 4                      ; r15 = r14 * 16
+    mov     r11, r14
+    shl     r11, 3                      ; r11 = r14 * 8
+    add     r15, r11                    ; r15 = r14 * 24
+
+    mov     rcx, [r13 + r15]            ; Pobranie zapisanego 64-bitowego klucza (znaku)
+    cmp     cl, al
+    je      error_cleanup_exit          ; Duplikat reguły -> błąd
+    inc     r14
+    jmp     .check_uniq_loop
+
+.uniq_ok:
     ; Szukanie końca linii reguły
     lea     rcx, [rbx + 1]              ; Start ciągu zastępującego
 .find_rule_nl:
@@ -193,9 +220,62 @@ _start:
     mov     r10, rcx
     sub     r10, r8                     ; r10 = długość ciągu zastępującego
 
-    ; Zapisanie reguły w tabeli
-    mov     [r14], r8                   ; Zapis adresu mapowania
-    mov     [r14 + 8], r10              ; Zapis długości mapowania
+    ; Kontrola i ewentualne rozszerzenie pamięci dynamicznej tablicy reguł
+    mov     r14, [rules_count]
+    lea     rax, [r14 + 1]              ; Potrzebny rozmiar dla (count + 1) wpisów
+    mov     r15, rax
+    shl     r15, 4
+    shl     rax, 3
+    add     r15, rax                    ; r15 = (count + 1) * 24 bajty
+
+    cmp     r15, [rules_cap]
+    jbe     .rules_space_ok
+
+    ; Powiększenie tablicy reguł
+    push    rax
+    push    r8
+    push    r10
+    push    rbx
+    push    rdi
+    push    rsi
+
+    mov     rdi, [rules_buf]
+    mov     rsi, [rules_cap]
+    shl     rsi, 1                      ; Podwojenie wielkości
+    mov     rdx, rsi
+    mov     rsi, [rules_cap]
+    mov     r10, [mremap_maymove]
+    mov     rax, [sys_mremap_num]
+    syscall
+
+    pop     rsi
+    pop     rdi
+    pop     rbx
+    pop     r10
+    pop     r8
+    pop     rax
+    cmp     rax, [max_errno]
+    jae     error_cleanup_exit
+    mov     [rules_buf], rax
+    shl     qword [rules_cap], 1
+
+.rules_space_ok:
+    ; Zapisanie rekordu reguły w wyliczonym elemencie dynamicznym
+    mov     r13, [rules_buf]
+    mov     r14, [rules_count]
+    mov     r15, r14
+    shl     r15, 4
+    shl     r14, 3
+    add     r15, r14                    ; r15 = rules_count * 24
+
+    xor     eax, eax
+    mov     al, [rbx]                   ; Odtworzenie symbolu klucza
+
+    mov     [r13 + r15], rax            ; Zapis klucza jako qword (czysty bajt + padding)
+    mov     [r13 + r15 + 8], r8         ; Zapis adresu ciągu zastępującego
+    mov     [r13 + r15 + 16], r10       ; Zapis długości ciągu zastępującego
+
+    inc     qword [rules_count]
 
     mov     rbx, rcx
     inc     rbx                         ; Przejście do następnej linii
@@ -279,19 +359,30 @@ _start:
     test    rdx, rdx
     jz      .output_char
 
-    ; Sprawdzenie czy existe reguła zamiany dla znaku rbx
-    mov     rcx, rbx
-    shl     rcx, 4                      ; rbx * 16 (indeksowanie tabeli)
+    ; Liniowe przeszukiwanie dynamicznej tablicy reguł dla znaku z bl
+    mov     r13, [rules_buf]
+    xor     r14, r14                    ; Indeks pętli wyszukiwania
+.lookup_rule_loop:
+    cmp     r14, [rules_count]
+    jae     .output_char                ; Brak dopasowania w regułach -> traktuj jako stałą
 
-    ; Pobieramy adres bazowy tabeli relatywnie (RIP-relative),
-    ; a przesunięcie indeksu dodajemy jawnie instrukcją add.
-    lea     r10, [rules_table]
-    add     r10, rcx
-    mov     r8, [r10]                   ; r8 = wskaźnik na ciąg zastępujący
-    mov     r9, [r10 + 8]               ; r9 = długość ciągu zastępującego
+    ; Obliczenie offsetu elementu struktury: r14 * 24
+    mov     r15, r14
+    shl     r15, 4                      ; r14 * 16
+    mov     r11, r14
+    shl     r11, 3                      ; r14 * 8
+    add     r15, r11
 
-    test    r8, r8
-    jz      .output_char                ; Brak reguły -> traktuj znak jako stałą (wypisz)
+    mov     rcx, [r13 + r15]            ; Ładowanie zapisanego klucza symbolu
+    cmp     cl, bl                      ; Porównanie z poszukiwanym znakiem
+    je      .lookup_found
+
+    inc     r14
+    jmp     .lookup_rule_loop
+
+.lookup_found:
+    mov     r8, [r13 + r15 + 8]         ; r8 = wskaźnik na ciąg zastępujący
+    mov     r9, [r13 + r15 + 16]        ; r9 = długość ciągu zastępującego
 
     ; Reguła istnieje i depth > 0 -> Wypchnięcie nowej ramki na stos (push)
     ; Sprawdzenie, czy na stosie jest wolne miejsce (wymagane kolejne 24 bajty)
@@ -412,9 +503,17 @@ free_all_buffers:
     ; Zwolnienie bufora wejściowego
     mov     rdi, [input_buf]
     test    rdi, rdi
-    jz      .free_out
+    jz      .free_rules
     mov     rsi, [input_cap]
     mov     rax, [sys_munmap_num]       ; sys_munmap
+    syscall
+.free_rules:
+    ; Zwolnienie dynamicznego bufora reguł
+    mov     rdi, [rules_buf]
+    test    rdi, rdi
+    jz      .free_out
+    mov     rsi, [rules_cap]
+    mov     rax, [sys_munmap_num]
     syscall
 .free_out:
     ; Zwolnienie stałego bufora wyjściowego
@@ -467,6 +566,7 @@ stdout_fd:          dq 1
 
 ; Konfiguracja rozmiarów buforów
 initial_buf_size:   dq 1048576          ; Początkowy rozmiar bufora (1MB)
+initial_rules_cap:  dq 4096             ; Początkowy rozmiar bufora reguł (4KB)
 out_buf_size:       dq 65536            ; Rozmiar stałego bufora wyjściowego (64KB)
 frame_size:         dq 24               ; Rozmiar pojedynczej ramki stosu DFS (3 * 8 bajtów)
 
@@ -492,21 +592,22 @@ char_lf_qword:      dq 10               ; Kod znaku nowej linii '\n' (qword dla 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 section .bss
 align 8
-target_n:    resq 1                      ; Docelowa liczba iteracji n obliczona ze strumienia wejściowego
+target_n:    resq 1                      ; Docelowa liczba iteracji n
 
 input_buf:   resq 1                      ; Adres bufora na surowe wejście ze stdin
 input_cap:   resq 1                      ; Pojemność bufora wejściowego
 input_len:   resq 1                      ; Rozmiar wczytanych danych ze stdin
 
-start_ptr:   resq 1                      ; Wskaźnik na początek ciągu startowego wewnątrz bufora wejściowego
+start_ptr:   resq 1                      ; Wskaźnik na początek ciągu startowego
 start_len:   resq 1                      ; Długość ciągu startowego
 
 out_buf:     resq 1                      ; Adres stałego bufora wyjściowego (64KB)
 out_len:     resq 1                      ; Liczba nieopróżnionych bajtów w buforze wyjściowym
 
-stack_buf:   resq 1                      ; Adres dynamicznego bufora dla jawnego stosu DFS
+stack_buf:   resq 1                      ; Adres dynamicznego bufora dla stosu DFS
 stack_cap:   resq 1                      ; Aktualna pojemność bufora stosu w bajtach
 
-; Tablica asocjacyjna reguł zamiany: kod ASCII (0-255) -> struktura {wskaźnik, długość}.
-; Rozmiar: 256 wpisów * 16 bajtów = 4096 bajtów.
-rules_table: resq 512
+; Zmienne dla nowej dynamicznej tablicy asocjacyjnej reguł
+rules_buf:   resq 1                      ; Adres dynamicznej tablicy obiektów struktur reguł
+rules_cap:   resq 1                      ; Aktualny rozmiar zarezerwowanego bufora reguł w bajtach
+rules_count: resq 1                      ; Faktyczna liczba unikalnych reguł wczytanych z wejścia
