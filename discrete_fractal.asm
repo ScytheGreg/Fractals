@@ -268,7 +268,7 @@ _start:
     movzx   rbx, byte [rsi]             ; rbx = aktualny znak c
     inc     rsi
 
-    ; POPRAWKA: Bezpieczny zapis zaktualizowanego adresu curr_ptr przez rejestr bazowy r15
+    ; Bezpieczny zapis zaktualizowanego adresu curr_ptr przez rejestr bazowy r15
     mov     r15, [stack_buf]
     mov     [r15 + rax], rsi
 
