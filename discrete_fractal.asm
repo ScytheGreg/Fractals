@@ -146,7 +146,7 @@ _start:
     cmp     rbx, rdi
     jae     .parsing_finished           ; Koniec danych w buforze
 
-    ; Ignorowanie ewentualnego怸 pojedynczego znaku nowej linii na samym końcu pliku
+    ; Ignorowanie ewentualnego pojedynczego znaku nowej linii na samym końcu pliku
     mov     rcx, rdi
     sub     rcx, rbx
     cmp     rcx, 1
@@ -228,7 +228,7 @@ _start:
     mov     [stack_buf], rax
     mov     qword [stack_cap], 1048576
 
-    ; POPRAWKA: Pobieramy adres zwracanego bufora mmap do r15 i na niego zapisujemy ramkę
+    ; Pobieramy adres zwracanego bufora mmap do r15 i na niego zapisujemy ramkę
     mov     r15, [stack_buf]
     mov     rax, [start_ptr]
     mov     [r15], rax                  ; frame.curr_ptr = start_ptr
@@ -249,7 +249,7 @@ _start:
     mov     rax, r12
     sub     rax, 24
 
-    ; POPRAWKA: Ładujemy rzeczywisty wskaźnik na bufor stosu do rejestru bazowego r15
+    ; Ładujemy rzeczywisty wskaźnik na bufor stosu do rejestru bazowego r15
     mov     r15, [stack_buf]
     mov     rsi, [r15 + rax]            ; rsi = curr_ptr
     mov     rdi, [r15 + rax + 8]        ; rdi = end_ptr
@@ -280,7 +280,7 @@ _start:
     mov     rcx, rbx
     shl     rcx, 4                      ; rbx * 16 (indeksowanie tabeli)
 
-    ; POPRAWKA PIE: Pobieramy adres bazowy tabeli relatywnie (RIP-relative),
+    ; Pobieramy adres bazowy tabeli relatywnie (RIP-relative),
     ; a przesunięcie indeksu dodajemy jawnie instrukcją add.
     lea     r10, [rules_table]
     add     r10, rcx
