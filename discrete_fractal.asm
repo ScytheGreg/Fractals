@@ -1,16 +1,14 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Program: discrete_fractal (Wersja zoptymalizowana: BSS = 0 bajtów)
-; Opis: Generuje L-systemy za pomocą stosu DFS. Tablica reguł jest dynamiczna,
-;        a wszystkie zmienne stanu zostały przeniesione na stos (0 bajtów w .bss).
+; Program: discrete_fractal (Wersja Ultra-Kompaktowa: .bss = 0, .rodata = 0)
+; Opis: Maksymalnie zoptymalizowany pod kątem rozmiaru sekcji .text.
 ; Architektura: x86-64 Linux (NASM)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 default rel
-
 section .text
 global _start
 
-; Mapowanie zmiennych stanu na ramkę stosu (zamiast sekcji .bss)
+; Mapowanie zmiennych stanu na ramkę stosu
 %define target_n    rbp - 8
 %define input_buf   rbp - 16
 %define input_cap   rbp - 24
@@ -27,121 +25,113 @@ global _start
 STATE_SIZE equ 104
 
 _start:
-    ; Sprawdzenie liczby argumentów (argc musi wynosić dokładnie 2)
-    mov     rbp, rsp                    ; rbp = punkt odniesienia do argumentów (i nowej ramki)
-    cmp     qword [rbp], 2              ; Sprawdzenie argc
-    jne     error_exit_no_free          ; Błąd jeśli argc != 2
-
-    ; Alokacja 104 bajtów na zmienne stanu bezpośrednio na stosie
+    mov     rbp, rsp
     sub     rsp, STATE_SIZE
 
-    ; Bezpieczne wyzerowanie ramki stosu (13 kwadratów * 8 bajtów = 104 bajty)
+    ; Zerowanie ramki stosu
     mov     rdi, rsp
-    xor     rax, rax
-    mov     rcx, 13
+    xor     eax, eax
+    mov     ecx, 13
     rep stosq
 
-    ; Parsowanie parametru n (argv[1] znajduje się na [rbp + 16])
+    ; Walidacja argc == 2
+    cmp     qword [rbp], 2
+    jne     error_exit
+
+    ; Parsowanie parametru n
     mov     rsi, [rbp + 16]             ; rsi = argv[1]
-    xor     rax, rax                    ; rax będzie przechowywać wartość n
-    xor     rcx, rcx                    ; czyszczenie rejestru pomocniczego
-
+    xor     rax, rax
 .parse_loop:
-    mov     cl, [rsi]                   ; Pobranie kolejnego znaku napisu
-    test    cl, cl                      ; Sprawdzenie końca napisu (\0)
+    xor     ecx, ecx
+    mov     cl, [rsi]
+    inc     rsi
+    test    cl, cl
     jz      .parse_done
-    cmp     cl, '0'
-    jb      error_cleanup_exit          ; Znak poniżej '0' -> błąd
-    cmp     cl, '9'
-    ja      error_cleanup_exit          ; Znak powyżej '9' -> błąd
-    sub     cl, '0'                     ; Konwersja ASCII na cyfrę
+    sub     cl, '0'
+    cmp     cl, 9
+    ja      error_exit                  ; Łapie też znaki < '0' przez overflow
 
-    ; Kontrola przepełnienia 32-bitowego przed mnożeniem
-    mov     rdx, [max_n_limit]
+mov     edx, 429496729
     cmp     rax, rdx
-    ja      error_cleanup_exit
-    jne     .multiply
-    cmp     rcx, [max_n_digit]
-    ja      error_cleanup_exit
+    ja      error_exit                  ; Powyżej progu = błąd
+    jb      .safe_multiply              ; Poniżej progu = bezpieczne, omijamy test cyfry
 
-.multiply:
-    mov     rdx, rax
-    shl     rdx, 3                      ; rdx = rax * 8
-    shl     rax, 1                      ; rax = rax * 2
-    add     rax, rdx                    ; rax = rax * 10
-    add     rax, rcx                    ; Dodanie nowej cyfry
+    cmp     cl, 5                       ; Limit dla ostatniej cyfry to 5
+    ja      error_exit                  ; Jeśli więcej niż 5, mamy przepełnienie
 
-    inc     rsi                         ; Przejście do kolejnego znaku
+.safe_multiply:
+    imul    rax, 10
+    movzx   rcx, cl
+    add     rax, rcx
     jmp     .parse_loop
 
 .parse_done:
     mov     rsi, [rbp + 16]
     cmp     byte [rsi], 0
-    je      error_cleanup_exit
+    je      error_exit
+    mov     [target_n], rax
 
-    mov     [target_n], rax             ; Zapisanie docelowej liczby iteracji
-
-    ; Alokacja początkowego bufora na całe wejście (1MB) za pomocą sys_mmap
-    mov     rdi, 0
-    mov     rsi, [initial_buf_size]     ; 1MB
-    mov     rdx, [prot_rw]
-    mov     r10, [map_priv_anon]
-    mov     r8, -1
-    mov     r9, 0
-    mov     rax, [sys_mmap_num]
+    ; Alokacja input_buf (1MB)
+    xor     edi, edi
+    mov     esi, 1048576
+    mov     edx, 3                      ; PROT_READ | PROT_WRITE
+    mov     r10d, 0x22                  ; MAP_PRIVATE | MAP_ANONYMOUS
+    or      r8, -1                      ; r8 = -1
+    xor     r9d, r9d
+    push    9
+    pop     rax                         ; sys_mmap
     syscall
-    cmp     rax, [max_errno]
-    jae     error_cleanup_exit
+    cmp     rax, -4095
+    jae     error_exit
     mov     [input_buf], rax
-    mov     rcx, [initial_buf_size]
-    mov     [input_cap], rcx
+    mov     qword [input_cap], 1048576
 
-    ; Alokacja początkowego dynamicznego bufora na reguły (4KB)
-    mov     rdi, 0
-    mov     rsi, [initial_rules_cap]
-    mov     rdx, [prot_rw]
-    mov     r10, [map_priv_anon]
-    mov     r8, -1
-    mov     r9, 0
-    mov     rax, [sys_mmap_num]
+    ; Alokacja rules_buf (4KB)
+    xor     edi, edi
+    mov     esi, 4096
+    mov     edx, 3
+    mov     r10d, 0x22
+    or      r8, -1
+    xor     r9d, r9d
+    push    9
+    pop     rax                         ; sys_mmap
     syscall
-    cmp     rax, [max_errno]
-    jae     error_cleanup_exit
+    cmp     rax, -4095
+    jae     error_exit
     mov     [rules_buf], rax
-    mov     rcx, [initial_rules_cap]
-    mov     [rules_cap], rcx
+    mov     qword [rules_cap], 4096
 
-    ; Pętla wczytywania całego standardowego wejścia
+    ; Wczytywanie stdin
 .read_loop:
-    mov     rdi, [stdin_fd]
+    xor     edi, edi                    ; stdin = 0
     mov     rsi, [input_buf]
     add     rsi, [input_len]
     mov     rdx, [input_cap]
     sub     rdx, [input_len]
-    mov     rax, [sys_read_num]
+    xor     eax, eax                    ; sys_read = 0
     syscall
-
     cmp     rax, 0
     je      .read_done
-    jl      error_cleanup_exit
+    jl      error_exit
 
     add     [input_len], rax
-
     mov     rcx, [input_len]
     cmp     rcx, [input_cap]
     jne     .read_loop
 
+    ; Dynamiczne powiększenie input_buf przez sys_mremap
     mov     rdi, [input_buf]
     mov     rsi, [input_cap]
     shl     rsi, 1
     mov     rdx, rsi
     mov     rsi, [input_cap]
-    mov     r10, [mremap_maymove]
-    mov     rax, [sys_mremap_num]
+    push    1
+    pop     r10                         ; MREMAP_MAYMOVE
+    push    25
+    pop     rax                         ; sys_mremap
     syscall
-    cmp     rax, [max_errno]
-    jae     error_cleanup_exit
-
+    cmp     rax, -4095
+    jae     error_exit
     mov     [input_buf], rax
     shl     qword [input_cap], 1
     jmp     .read_loop
@@ -154,14 +144,14 @@ _start:
 
 .find_start_nl:
     cmp     rbx, rdi
-    jae     error_cleanup_exit
+    jae     error_exit
     mov     al, [rbx]
-    cmp     al, [char_lf]
+    cmp     al, 10                      ; '\n'
     je      .found_start_nl
-    cmp     al, [min_ascii]
-    jb      error_cleanup_exit
-    cmp     al, [max_ascii]
-    ja      error_cleanup_exit
+    cmp     al, 33
+    jb      error_exit
+    cmp     al, 126
+    ja      error_exit
     inc     rbx
     jmp     .find_start_nl
 
@@ -180,49 +170,40 @@ _start:
     sub     rcx, rbx
     cmp     rcx, 1
     jne     .not_trailing_nl
-    mov     al, [char_lf]
-    cmp     [rbx], al
+    cmp     byte [rbx], 10
     je      .parsing_finished
 
 .not_trailing_nl:
-    xor     eax, eax
     mov     al, [rbx]
-    cmp     al, [min_ascii]
-    jb      error_cleanup_exit
-    cmp     al, [max_ascii]
-    ja      error_cleanup_exit
+    cmp     al, 33
+    jb      error_exit
+    cmp     al, 126
+    ja      error_exit
 
-    ; Sprawdzenie unikalności reguły
+    ; Sprawdzenie unikalności za pomocą Pointer Trackingu
     mov     r13, [rules_buf]
-    xor     r14, r14
+    mov     rcx, [rules_count]
+    test    rcx, rcx
+    jz      .uniq_ok
 .check_uniq_loop:
-    cmp     r14, [rules_count]
-    jae     .uniq_ok
-
-    mov     r15, r14
-    shl     r15, 4
-    mov     r11, r14
-    shl     r11, 3
-    add     r15, r11                    ; r15 = r14 * 24
-
-    mov     rcx, [r13 + r15]
-    cmp     cl, al
-    je      error_cleanup_exit
-    inc     r14
-    jmp     .check_uniq_loop
+    cmp     [r13], al
+    je      error_exit
+    add     r13, 24
+    dec     rcx
+    jnz     .check_uniq_loop
 
 .uniq_ok:
     lea     rcx, [rbx + 1]
 .find_rule_nl:
     cmp     rcx, rdi
-    jae     error_cleanup_exit
+    jae     error_exit
     mov     r9b, [rcx]
-    cmp     r9b, [char_lf]
+    cmp     r9b, 10
     je      .found_rule_nl
-    cmp     r9b, [min_ascii]
-    jb      error_cleanup_exit
-    cmp     r9b, [max_ascii]
-    ja      error_cleanup_exit
+    cmp     r9b, 33
+    jb      error_exit
+    cmp     r9b, 126
+    ja      error_exit
     inc     rcx
     jmp     .find_rule_nl
 
@@ -231,15 +212,11 @@ _start:
     mov     r10, rcx
     sub     r10, r8
 
-    ; Kontrola i ewentualne rozszerzenie pamięci tablicy reguł
-    mov     r14, [rules_count]
-    lea     rax, [r14 + 1]
-    mov     r15, rax
-    shl     r15, 4
-    shl     rax, 3
-    add     r15, rax                    ; r15 = (count + 1) * 24
-
-    cmp     r15, [rules_cap]
+    ; Kontrola pamięci tablicy reguł
+    mov     rax, [rules_count]
+    inc     rax
+    imul    rax, 24
+    cmp     rax, [rules_cap]
     jbe     .rules_space_ok
 
     push    rax
@@ -248,98 +225,90 @@ _start:
     push    rbx
     push    rdi
     push    rsi
-
     mov     rdi, [rules_buf]
     mov     rsi, [rules_cap]
     shl     rsi, 1
     mov     rdx, rsi
     mov     rsi, [rules_cap]
-    mov     r10, [mremap_maymove]
-    mov     rax, [sys_mremap_num]
+    push    1
+    pop     r10
+    push    25
+    pop     rax
     syscall
-
     pop     rsi
     pop     rdi
     pop     rbx
-    pop     r10
-    pop     r8
-    pop     rax
-    cmp     rax, [max_errno]
-    jae     error_cleanup_exit
+    cmp     rax, -4095
+    jae     error_exit
     mov     [rules_buf], rax
     shl     qword [rules_cap], 1
 
 .rules_space_ok:
-    mov     r13, [rules_buf]
-    mov     r14, [rules_count]
-    mov     r15, r14
-    shl     r15, 4
-    shl     r14, 3
-    add     r15, r14                    ; r15 = rules_count * 24
+    mov     rax, [rules_count]
+    imul    rax, 24
+    add     rax, [rules_buf]
 
-    xor     eax, eax
-    mov     al, [rbx]
-
-    mov     [r13 + r15], rax            ; Klucz
-    mov     [r13 + r15 + 8], r8         ; Wskaźnik zamiany
-    mov     [r13 + r15 + 16], r10       ; Długość zamiany
+    movzx   r11, byte [rbx]
+    mov     [rax], r11
+    mov     [rax + 8], r8
+    mov     [rax + 16], r10
 
     inc     qword [rules_count]
-
     mov     rbx, rcx
     inc     rbx
     jmp     .parse_rules_loop
 
 .parsing_finished:
-    ; Alokacja bufora wyjściowego (64 KB)
-    mov     rdi, 0
-    mov     rsi, [out_buf_size]
-    mov     rdx, [prot_rw]
-    mov     r10, [map_priv_anon]
-    mov     r8, -1
-    mov     r9, 0
-    mov     rax, [sys_mmap_num]
+    ; Alokacja bufora wyjściowego (64KB)
+    xor     edi, edi
+    mov     esi, 65536
+    mov     edx, 3
+    mov     r10d, 0x22
+    or      r8, -1
+    xor     r9d, r9d
+    push    9
+    pop     rax
     syscall
-    cmp     rax, [max_errno]
-    jae     error_cleanup_exit
+    cmp     rax, -4095
+    jae     error_exit
     mov     [out_buf], rax
 
-    ; Alokacja początkowego bufora na jawny stos DFS (1MB)
-    mov     rdi, 0
-    mov     rsi, [initial_buf_size]
-    mov     rdx, [prot_rw]
-    mov     r10, [map_priv_anon]
-    mov     r8, -1
-    mov     r9, 0
-    mov     rax, [sys_mmap_num]
+    ; Alokacja bufora stosu DFS (1MB)
+    xor     edi, edi
+    mov     esi, 1048576
+    mov     edx, 3
+    mov     r10d, 0x22
+    or      r8, -1
+    xor     r9d, r9d
+    push    9
+    pop     rax
     syscall
-    cmp     rax, [max_errno]
-    jae     error_cleanup_exit
+    cmp     rax, -4095
+    jae     error_exit
     mov     [stack_buf], rax
-    mov     rcx, [initial_buf_size]
-    mov     [stack_cap], rcx
+    mov     qword [stack_cap], 1048576
 
     ; Przygotowanie pierwszej ramki stosu DFS
-    mov     r15, [stack_buf]
+    mov     r15, rax
     mov     rax, [start_ptr]
     mov     [r15], rax
     add     rax, [start_len]
     mov     [r15 + 8], rax
     mov     rcx, [target_n]
     mov     [r15 + 16], rcx
-    mov     r12, [frame_size]           ; r12 = stack_top (offset = 24)
+    mov     r12, 24
 
 .stack_loop:
     test    r12, r12
     jz      .generation_done
 
     mov     rax, r12
-    sub     rax, [frame_size]
+    sub     rax, 24
 
     mov     r15, [stack_buf]
-    mov     rsi, [r15 + rax]            ; curr_ptr
-    mov     rdi, [r15 + rax + 8]        ; end_ptr
-    mov     rdx, [r15 + rax + 16]       ; depth
+    mov     rsi, [r15 + rax]
+    mov     rdi, [r15 + rax + 8]
+    mov     rdx, [r15 + rax + 16]
 
     cmp     rsi, rdi
     jne     .process_char
@@ -350,40 +319,31 @@ _start:
 .process_char:
     movzx   rbx, byte [rsi]
     inc     rsi
-
     mov     r15, [stack_buf]
     mov     [r15 + rax], rsi
 
     test    rdx, rdx
     jz      .output_char
 
-    ; Przeszukiwanie tablicy reguł
+    ; Wyszukiwanie reguły za pomocą Pointer Trackingu
     mov     r13, [rules_buf]
-    xor     r14, r14
+    mov     rcx, [rules_count]
+    test    rcx, rcx
+    jz      .output_char
 .lookup_rule_loop:
-    cmp     r14, [rules_count]
-    jae     .output_char
-
-    mov     r15, r14
-    shl     r15, 4
-    mov     r11, r14
-    shl     r11, 3
-    add     r15, r11
-
-    mov     rcx, [r13 + r15]
-    cmp     cl, bl
+    cmp     [r13], bl
     je      .lookup_found
-
-    inc     r14
-    jmp     .lookup_rule_loop
+    add     r13, 24
+    dec     rcx
+    jnz     .lookup_rule_loop
+    jmp     .output_char
 
 .lookup_found:
-    mov     r8, [r13 + r15 + 8]
-    mov     r9, [r13 + r15 + 16]
+    mov     r8, [r13 + 8]
+    mov     r9, [r13 + 16]
 
-    ; Push nowej ramki na stos DFS
     mov     rax, r12
-    add     rax, [frame_size]
+    add     rax, 24
     cmp     rax, [stack_cap]
     jbe     .stack_space_ok
 
@@ -395,14 +355,16 @@ _start:
     shl     rsi, 1
     mov     rdx, rsi
     mov     rsi, [stack_cap]
-    mov     r10, [mremap_maymove]
-    mov     rax, [sys_mremap_num]
+    push    1
+    pop     r10
+    push    25
+    pop     rax
     syscall
     pop     rdx
     pop     r9
     pop     r8
-    cmp     rax, [max_errno]
-    jae     error_cleanup_exit
+    cmp     rax, -4095
+    jae     error_exit
     mov     [stack_buf], rax
     shl     qword [stack_cap], 1
 
@@ -413,7 +375,7 @@ _start:
     mov     [r15 + r12 + 8], r8
     dec     rdx
     mov     [r15 + r12 + 16], rdx
-    add     r12, [frame_size]
+    add     r12, 24
     jmp     .stack_loop
 
 .output_char:
@@ -423,22 +385,24 @@ _start:
     inc     rax
     mov     [out_len], rax
 
-    cmp     rax, [out_buf_size]
+    cmp     rax, 65536
     jne     .stack_loop
 
     xor     r14, r14
 .flush_loop:
     cmp     r14, [out_len]
     jae     .flush_done
-    mov     rdi, [stdout_fd]
+    push    1
+    pop     rdi                         ; stdout = 1
     mov     rsi, [out_buf]
     add     rsi, r14
     mov     rdx, [out_len]
     sub     rdx, r14
-    mov     rax, [sys_write_num]
+    push    1
+    pop     rax                         ; sys_write = 1
     syscall
     cmp     rax, 0
-    jle     error_cleanup_exit
+    jle     error_exit
     add     r14, rax
     jmp     .flush_loop
 
@@ -455,111 +419,81 @@ _start:
 .final_flush_loop:
     cmp     r14, [out_len]
     jae     .write_newline
-    mov     rdi, [stdout_fd]
+    push    1
+    pop     rdi
     mov     rsi, [out_buf]
     add     rsi, r14
     mov     rdx, [out_len]
     sub     rdx, r14
-    mov     rax, [sys_write_num]
+    push    1
+    pop     rax
     syscall
     cmp     rax, 0
-    jle     error_cleanup_exit
+    jle     error_exit
     add     r14, rax
     jmp     .final_flush_loop
 
 .write_newline:
-    mov     rax, [sys_write_num]
-    mov     rdi, [stdout_fd]
-    push    qword [char_lf_qword]
+    push    1
+    pop     rdi
+    push    10                          ; '\n' na stos
     mov     rsi, rsp
-    mov     rdx, 1
+    push    1
+    pop     rdx
+    push    1
+    pop     rax
     syscall
     pop     rcx
     cmp     rax, 1
-    jne     error_cleanup_exit
-
-    call    free_all_buffers
-    mov     rax, [sys_exit_num]
-    mov     rdi, 0
-    syscall
+    jne     error_exit
+    jmp     normal_exit
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Procedury oczyszczania zasobów
+; Zunifikowana sekwencja wyjścia programu (Normalna i błędy)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+normal_exit:
+    xor     edi, edi                    ; Kod sukcesu = 0
+    jmp     do_exit
+error_exit:
+    push    1
+    pop     rdi                         ; Kod błędu = 1
+do_exit:
+    push    rdi                         ; Zachowanie kodu wyjścia
 
-free_all_buffers:
+    ; Czyszczenie mmapów (sys_munmap = 11)
     mov     rdi, [input_buf]
     test    rdi, rdi
-    jz      .free_rules
+    jz      .f2
     mov     rsi, [input_cap]
-    mov     rax, [sys_munmap_num]
+    push    11
+    pop     rax
     syscall
-.free_rules:
+.f2:
     mov     rdi, [rules_buf]
     test    rdi, rdi
-    jz      .free_out
+    jz      .f3
     mov     rsi, [rules_cap]
-    mov     rax, [sys_munmap_num]
+    push    11
+    pop     rax
     syscall
-.free_out:
+.f3:
     mov     rdi, [out_buf]
     test    rdi, rdi
-    jz      .free_stack
-    mov     rsi, [out_buf_size]
-    mov     rax, [sys_munmap_num]
+    jz      .f4
+    mov     rsi, 65536
+    push    11
+    pop     rax
     syscall
-.free_stack:
+.f4:
     mov     rdi, [stack_buf]
     test    rdi, rdi
-    jz      .done
+    jz      .f_done
     mov     rsi, [stack_cap]
-    mov     rax, [sys_munmap_num]
+    push    11
+    pop     rax
     syscall
-.done:
-    ret
-
-error_exit_no_free:
-    mov     rax, [sys_exit_num]
-    mov     rdi, 1
+.f_done:
+    pop     rdi                         ; Przywrócenie kodu wyjścia
+    push    60
+    pop     rax                         ; sys_exit = 60
     syscall
-
-error_cleanup_exit:
-    call    free_all_buffers
-    mov     rax, [sys_exit_num]
-    mov     rdi, 1
-    syscall
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Sekcja danych (.rodata) - stałe programu pozostają niezmienione
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-section .rodata
-align 8
-sys_read_num:       dq 0
-sys_write_num:      dq 1
-sys_mmap_num:       dq 9
-sys_munmap_num:     dq 11
-sys_mremap_num:     dq 25
-sys_exit_num:       dq 60
-
-stdin_fd:           dq 0
-stdout_fd:          dq 1
-
-initial_buf_size:   dq 1048576
-initial_rules_cap:  dq 4096
-out_buf_size:       dq 65536
-frame_size:         dq 24
-
-prot_rw:            dq 3
-map_priv_anon:      dq 0x22
-mremap_maymove:     dq 1
-max_errno:          dq -4095
-
-max_n_limit:        dq 429496729
-max_n_digit:        dq 5
-
-min_ascii:          db 33
-max_ascii:          db 126
-char_lf:            db 10
-char_lf_qword:      dq 10
-
-; SEKCJA .BSS ZOSTAŁA CAŁKOWICIE USUNIĘTA

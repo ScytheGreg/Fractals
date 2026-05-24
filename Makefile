@@ -18,7 +18,7 @@ bench:
 
 fuzz:
 	./tests/python/checker.py >/dev/null
-	./tests/python/fuzz_runner.sh
+	./tests/python/fuzz_runner.sh >/dev/null
 
 .PHONY: all clean bench fuzz
 

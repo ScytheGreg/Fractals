@@ -45,6 +45,10 @@ rm -f .temp_input.txt .out_asm.txt .out_ref.txt .err_asm.txt
 exit 1
 fi
 
+if ! ./tests/testy_blednego_wejscia.sh ./discrete_fractal
+then exit 1;
+fi
+
 # Sprzątanie po udanym teście
 rm -f .temp_input.txt .out_asm.txt .out_ref.txt .err_asm.txt
 exit 0
