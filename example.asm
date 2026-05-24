@@ -1,12 +1,3 @@
-; argument.asm
-;
-; kompilacja:
-; nasm -f elf64 argument.asm
-; ld -o argument argument.o
-;
-; uruchomienie:
-; ./argument AlaMaKota
-
 section .data
     prefix db "Argument: "
     prefix_len equ $ - prefix
