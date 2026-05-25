@@ -90,6 +90,11 @@ TEST_CASES = [
         "Głęboka permutacja n=15",
         15,
         "A\nBC\nCA\nAB\n"
+    ),
+    (
+        "Brak wyjścia n = 10",
+        10,
+        "aaaa\nabbb\nbccc\ncddd\ndeee\nefff\nfggg\ng\n"
     )
 ]
 
