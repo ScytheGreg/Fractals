@@ -189,7 +189,7 @@ _start:
     movzx ebx, byte [rdi]       ; Load sign
     inc rdi                     ; index++
 
-    cmp bl, 33                  ; Lowwerbound
+    cmp bl, 33                  ; Lowerbound
     jb .exit_error
 
     cmp bl, 126                 ; Upperbound
@@ -210,6 +210,12 @@ _start:
 
     cmp bl, NEW_LINE            ; End of the rule
     je .rule_found
+
+    cmp bl, 33                  ; Validate sign lowerbound
+    jb .exit_error
+
+    cmp bl, 126                 ; Validate sign upperbound
+    ja .exit_error
 
     jmp .read_rule_loop
 
@@ -262,6 +268,8 @@ _start:
     mov r12, [write_buf]          ; Write position
     mov r13, [write_end]          ; Write end bound
     mov r14, [stack_buf]          ; Stack position
+
+    mov rbx, [patterns]           ; Stable reference to patterns
     mov r15, r8                   ; Stable iterations number to detect end of all epochs
 
     mov [r14], r9                 ; Start position of zero iteration
@@ -273,10 +281,24 @@ _start:
 
     test r8, r8;                  ; Check if last iteration
     jz  .write_to_buffer
-.write_done:
-    test r9, r10
+.write_done:                      ; After write there will be epoch descrease
+    test r9, r10                  ; Test if every sign from epoch has been processed
     jae .decrease_epoch
+; Increase epoch
+    add r14, 16                    ; Increase stack position
+    dec r8                         ; Decrease epochs to go
 
+    movzx rax, byte [r9]           ; Load sign
+    sub rax, 33                    ; Normalize to array index
+    shl rax, 4                     ; Multiply by frame size of patterns
+
+    mov rcx, [rbx + rax]           ; Load start of next pattern through rcx
+    mov [rdx], rcx                 ;    to next epoch start
+
+    mov rcx, [rbx + rax + 8]       ; Load end of next pattern through rcx
+    mov [rdx + 8], rcx             ;    to next epoch end
+
+    jmp .process_epoch
 
 .decrease_epoch:
     sub r14, 16                   ; Decrease stack position
@@ -287,8 +309,6 @@ _start:
 
     jmp .process_epoch
 
-
-
 .write_to_buffer:
     cmp r12, r13;
     jae .flush_write
@@ -296,8 +316,8 @@ _start:
     cmp r9, r10                 ; Test bounds
     jae .write_done
 
-    mov bl, [r9]                ; Load char to ebx
-    mov [r12], bl               ; Save char to write buffer
+    mov al, [r9]                ; Load char to ebx
+    mov [r12], al               ; Save char to write buffer
 
     jmp .write_to_buffer
 
@@ -310,7 +330,7 @@ _start:
     syscall
 
     cmp r8, r15                 ; Check end of everything
-    jmp .exit
+    ja .exit
 
     mov r12, rsi                ; reset write position
     jmp .write_to_buffer        ; Continue writing
