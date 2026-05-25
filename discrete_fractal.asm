@@ -5,25 +5,36 @@ section .rodata
     SYS_WRITE       equ 1
     STD_OUT_FD      equ 1
     SYS_MMAP        equ 9
-    SYS_MUMMAP      equ 11
+    SYS_MUNMAP      equ 11
 
     PROT_FLAGS      equ 3      ; PROT_READ | PROT_WRITE
-    MAP_FLAFS       equ 0x22   ; MAP_PRIVATE | MAP_ANONYMOUS
+    MAP_FLAGS       equ 0x22   ; MAP_PRIVATE | MAP_ANONYMOUS
 
 section .bss
     align 8
     target_n resq 1
 
-    read_buf    resq 1      ; Read buffer beggining pointer
-    read_cup    resq 1      ; Read buffer cup
-    read_len    resq 1      ; Input length
+    read_buf        resq 1      ; Read buffer beggining pointer
+    read_cup        resq 1      ; Read buffer cup
+    read_len        resq 1      ; Input length
+    first_line_len  resq 1      ; Length of first line
 
-    new_buf     resq 1      ;
-    new_cup     resq 1      ;
+    ; Pattern array
+    ;typedef struct pattern_node{
+    ;      size_t pointer
+    ;      size_t length
+    ;}
+    ; Every supported ascii number (from 33 to 126) takes two qwords
+
+    pattern     resq 188    ; (126 - 32) * 2
+
+
 
 section .text
-global _start
+
 default rel
+
+global _start
 
 _start:
 ;%%%%% PARSE 'n' PARAMETER %%%%%
@@ -57,7 +68,7 @@ _start:
     jmp .parse_n_loop
 
 .parse_n_done:
-    mov [rel target_n], rdi ; Save n in a global variable
+    mov [target_n], rdi ; Save n in a global variable
 
 
 ;%%%% READ INPUT to READ BUFFER %%%%%
@@ -86,7 +97,7 @@ _start:
     cmp rax, -4095          ; Handle errors
     jae .exit_error
 
-    mov rbx, r13            ; Memory was allocated
+    mov rbp, rax            ; Save read buffer
 
     test rbx, rbx           ; If nothing to copy, skip
     jz .copy_done
@@ -97,32 +108,64 @@ _start:
     mov rcx, r12            ; Reps (Current read length)
     rep movsb               ; Chunk fast copy
 
+    ; Free old
+    mov rax, SYS_MUNMAP
+    mov rdi, [read_buf]     ; Source
+    mov rsi, rbx            ; Length
+    syscall
+
+    cmp rax, -4095          ; Handle errors
+    jae .exit_error
+
 .copy_done:
-    mov [read_buf], rax
-    lea [read_cup], [rax + r13]     ; Maybe unnecessary save
+    mov [read_buf], rbp             ; Save read buffer adress
+    mov rbx, r13                    ; Update amount of allocated memory
 
 .space_buf_ok:
     mov rax, SYS_READ
     mov rdi, STD_IN_FD
-    lea rsi, [read_buf + r12]
-    lea rdx, [rbx - r12]            ; Max number of read characters - remaining space
+    mov rsi, [read_buf]
+    add rsi, r12
+    mov rdx, rbx                    ; Max number of read characters - remaining space
+    sub rdx, r12
     syscall
+
+    cmp rax, -4095                  ; Handle errors
+    jae .exit_error                 ;   exit(1)
 
     test rax, rax                   ; if EOF
     jz .read_done                   ;   break
 
-    cmp rax, -4095                  ; Read error
-    jae .exit_error                 ;   exit(1)
+    add r12, rax                    ; Add number of read digits to string length
 
-    add r12, rax        ; Add number of read digits to string length
-
-    cmp rbx, r12
-    jne .read_loop
-    shl r13, 1 ; Double needed memory
+    cmp rbx, r12                    ; If no whole memory is used
+    jne .read_loop                  ;       do not double memory
+    shl r13, 1                      ; Double needed memory
     jmp .read_loop
 
 .read_done:
-    mov rax, [rel read_size]
+    mov [read_len], r12
+    mov [read_cup], rbx
+
+;%%%% PARSE INPUT %%%%
+
+    ; Find newline
+    mov rdi, [read_buf]         ; Sign pointer
+    lea rsi, [rdi + r12]        ; Bound
+.first_line_loop:
+    cmp rdi, rsi                ; Test bounds
+    ja .exit_error              ; Out of bound - no newline found
+
+    movzx bl, [rdi]             ; Load sign
+    inc rdi;                    ; index ++
+
+    cmp bl, '\n'                ; Check for newline
+    je .first_line_end          ;
+
+    jmp .first_line_loop
+
+.first_line_end:
+
 
 .exit:
     xor rdi, rdi
