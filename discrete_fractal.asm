@@ -169,18 +169,26 @@ _start:
     ja .exit_error              ; Out of bound - no newline found
 
     movzx ebx, byte [rdi]       ; Load sign
-    inc rdi;                    ; index ++
+    inc rdi;                    ; index++
 
     cmp bl, NEW_LINE            ; Check for newline
     je .first_line_end          ;
 
+    cmp bl, 33                  ; Lowerbound
+    jb .exit_error
+
+    cmp bl, 126                 ; Upperbound
+    ja .exit_error
+
     jmp .first_line_loop
 
 .first_line_end:
-    mov [first_line_end], rdi
+    dec rdi                     ; Save pointer to newline
+    mov [first_line_end], rdi   ; (not next one)
+    inc rdi
 
     ; Read patterns table
-    lea rcx, [patterns]         ; rcx will keep patters table pointer
+    lea rcx, [patterns]         ; rcx will keep patterns table pointer
 
 .read_pattern:
     cmp rdi, rsi                ; Test bound
@@ -239,6 +247,7 @@ _start:
 
     ; Allocate write buffer (4 kB) and stack_space (n * 16 B)
     mov rsi, [target_n]
+    inc rsi                 ; For n = 0 allocate at least one
     shl rsi, 4              ; Calculate stack_space
     ; MMAP
     mov rax, SYS_MMAP
@@ -272,11 +281,12 @@ _start:
     dec r13                       ; Decrease bound to have space for last newline
     mov r14, [stack_buf]          ; Stack position
 
-    lea rbx, [patterns]             ; Stable reference to patterns
+    lea rbx, [patterns]           ; Stable reference to patterns
     mov r15, r8                   ; Stable iterations number to detect end of all epochs
 
     mov [r14], r9                 ; Start position of zero iteration
     mov [r14 + 8], r10            ; End   position of zero iteration
+
 
 .process_epoch:
     mov r9,  [r14]                ; Set start and end of processed string
@@ -288,7 +298,7 @@ _start:
     cmp r9, r10                   ; Test if every sign from epoch has been processed
     jae .decrease_epoch
 ; Increase epoch
-    mov rcx, [r14]                      ; Increase start position of current string
+    mov rcx, [r14]                 ; Increase start position of current string
     inc rcx
     mov [r14], rcx
 
@@ -299,14 +309,20 @@ _start:
     sub rax, 33                    ; Normalize to array index
     shl rax, 4                     ; Multiply by frame size of patterns
 
-    mov rcx, [rbx + rax]           ; Load start of next pattern through rcx
-    mov [r14], rcx                 ;    to next epoch start
+    mov rcx, [rbx + rax]           ; Load start of next pattern through rcx...
+    test rcx, rcx                  ; Check if rule exists
+    jz .no_rule_found
+    mov [r14], rcx                 ;    ...to next epoch start
 
     mov rcx, [rbx + rax + 8]       ; Load end of next pattern through rcx
     mov [r14 + 8], rcx             ;    to next epoch end
 
+    jmp .process_epoch
 
-
+.no_rule_found:
+    mov [r14], r9                 ; Save pointer to current char
+    inc r9                        ; End pointer one position
+    mov [r14 + 8], r9             ;     behind that char
     jmp .process_epoch
 
 .decrease_epoch:
@@ -337,7 +353,6 @@ _start:
     inc r12
 
 .flush_write:
-
     mov rax, SYS_WRITE
     mov rdi, STD_OUT_FD         ; File descriptor
     mov rsi, [write_buf]        ; Start of write
