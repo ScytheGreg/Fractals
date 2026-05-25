@@ -5,6 +5,7 @@ section .rodata
     SYS_WRITE       equ 1
     STD_OUT_FD      equ 1
     SYS_MMAP        equ 9
+    SYS_MUMMAP      equ 11
 
     PROT_FLAGS      equ 3      ; PROT_READ | PROT_WRITE
     MAP_FLAFS       equ 0x22   ; MAP_PRIVATE | MAP_ANONYMOUS
@@ -14,10 +15,15 @@ section .bss
     target_n resq 1
 
     read_buf    resq 1      ; Read buffer beggining pointer
-    read_size   resq 1      ; Input length
+    read_cup    resq 1      ; Read buffer cup
+    read_len    resq 1      ; Input length
+
+    new_buf     resq 1      ;
+    new_cup     resq 1      ;
 
 section .text
 global _start
+default rel
 
 _start:
 ;%%%%% PARSE 'n' PARAMETER %%%%%
@@ -58,25 +64,61 @@ _start:
 
     ; Init read buffer
     xor rbx, rbx            ; Size of allocated memory for read buffer
+    mov r13, 1024           ; This amount we want to be allocated
+    xor r12, r12            ; Writing lenght
 
 .read_loop:
+    ; Make space for data
+    cmp rbx, r13
+    jae .space_buf_ok
+    ; No space for input
 
-    ; Make space for
-
-
-    mov rax, SYS_READ
-    mov rdi, STD_IN_FD
-    lea rsi, [rel read_buf]
-    mov rdx, 4              ; Max number of read characters - just for tests
+    ; MMAP
+    mov rax, SYS_MMAP
+    xor rdi, rdi
+    mov rsi, r13            ; This amount we want to allocata
+    mov rdx, PROT_FLAGS
+    mov r8, -1              ; Requiered for anonymous
+    xor r9, r9              ; Offset = 0
+    mov r10, MAP_FLAGS
     syscall
 
-    test rax, rax           ; if EOF
-    jz .read_done           ;   break
+    cmp rax, -4095          ; Handle errors
+    jae .exit_error
 
-    cmp rax, -4095          ; Read error
-    jae .exit_error         ;   exit(1)
+    mov rbx, r13            ; Memory was allocated
 
-    add [rel read_size], rax ; Add number of read digits to string length
+    test rbx, rbx           ; If nothing to copy, skip
+    jz .copy_done
+
+    ; Copy old
+    mov rdi, rax            ; Destination
+    mov rsi, [read_buf]     ; Source
+    mov rcx, r12            ; Reps (Current read length)
+    rep movsb               ; Chunk fast copy
+
+.copy_done:
+    mov [read_buf], rax
+    lea [read_cup], [rax + r13]     ; Maybe unnecessary save
+
+.space_buf_ok:
+    mov rax, SYS_READ
+    mov rdi, STD_IN_FD
+    lea rsi, [read_buf + r12]
+    lea rdx, [rbx - r12]            ; Max number of read characters - remaining space
+    syscall
+
+    test rax, rax                   ; if EOF
+    jz .read_done                   ;   break
+
+    cmp rax, -4095                  ; Read error
+    jae .exit_error                 ;   exit(1)
+
+    add r12, rax        ; Add number of read digits to string length
+
+    cmp rbx, r12
+    jne .read_loop
+    shl r13, 1 ; Double needed memory
     jmp .read_loop
 
 .read_done:
