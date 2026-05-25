@@ -269,6 +269,7 @@ _start:
     mov r10, [first_line_end]     ; End of processed string
     mov r12, [write_buf]          ; Write position
     mov r13, [write_end]          ; Write end bound
+    dec r13                       ; Decrease bound to have space for last newline
     mov r14, [stack_buf]          ; Stack position
 
     lea rbx, [patterns]             ; Stable reference to patterns
@@ -313,7 +314,7 @@ _start:
     inc r8                        ; Increase iterations to go
 
     cmp r8, r15                   ; Check end of everything condition
-    ja  .flush_write              ; Final flush
+    ja  .final_flush_write              ; Final flush
 
     jmp .process_epoch
 
@@ -324,19 +325,24 @@ _start:
     cmp r9, r10                 ; Test string bounds
     jae .write_done
 
-    movzx rax, byte [r9]                ; Load char to ebx
+    movzx rax, byte [r9]        ; Load char to ebx
     mov [r12], al               ; Save char to write buffer
     inc r9                      ; string_index++
     inc r12                     ; write_index++
 
     jmp .write_to_buffer
 
+.final_flush_write:
+    mov [r12], byte NEW_LINE    ; Add new line at the end
+    inc r12
+
 .flush_write:
 
     mov rax, SYS_WRITE
     mov rdi, STD_OUT_FD         ; File descriptor
     mov rsi, [write_buf]        ; Start of write
-    mov rdx, 4096               ; Number of bytes to write
+    mov rdx, r12                ; Number of bytes to write
+    sub rdx, rsi                ;   = position - start
     syscall
 
     cmp r8, r15                 ; Check end of everything

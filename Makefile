@@ -20,7 +20,7 @@ bench:
 	./tests/python/streaming_benchmark.py
 
 fuzz:
-	./tests/python/checker.py >/dev/null
+	./tests/python/checker.py
 	./tests/python/fuzz_runner.sh >/dev/null
 
 .PHONY: all clean bench fuzz
