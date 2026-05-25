@@ -261,11 +261,31 @@ _start:
     mov r10, [first_line_end]     ; End of processed string
     mov r12, [write_buf]          ; Write position
     mov r13, [write_end]          ; Write end bound
+    mov r14, [stack_buf]          ; Stack position
+    mov r15, r8                   ; Stable iterations number to detect end of all epochs
+
+    mov [r14], r9                 ; Start position of zero iteration
+    mov [r14 + 8], r10            ; End   position of zero iteration
 
 .process_epoch:
-    test r8, r8;
+    mov r9,  [r14]                ; Set start and end of processed string
+    mov r10, [r14 + 8]
+
+    test r8, r8;                  ; Check if last iteration
     jz  .write_to_buffer
 .write_done:
+    test r9, r10
+    jae .decrease_epoch
+
+
+.decrease_epoch:
+    sub r14, 16                   ; Decrease stack position
+    inc r8                        ; Increase iterations to go
+
+    cmp r8, r15                   ; Check end of everything condition
+    ja  .flush_write              ; Final flush
+
+    jmp .process_epoch
 
 
 
@@ -282,11 +302,15 @@ _start:
     jmp .write_to_buffer
 
 .flush_write:
+
     mov rax, SYS_WRITE
     mov rdi, STD_OUT_FD         ; File descriptor
     mov rsi, [write_buf]        ; Start of write
     mov rdx, 4096               ; Number of bytes to write
     syscall
+
+    cmp r8, r15                 ; Check end of everything
+    jmp .exit
 
     mov r12, rsi                ; reset write position
     jmp .write_to_buffer        ; Continue writing
