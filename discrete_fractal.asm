@@ -23,12 +23,12 @@ section .bss
 
     ; Pattern array
     ;typedef struct pattern_node{
-    ;      size_t pointer
-    ;      size_t length
+    ;      size_t start
+    ;      size_t end
     ;}
     ; Every supported ascii number (from 33 to 126) takes two qwords
 
-    pattern     resq 188    ; (126 - 32) * 2
+    patterns        resq 188     ; (126 - 32) * 2
 
 
 
@@ -171,6 +171,48 @@ _start:
 
 .first_line_end:
     mov [first_line_end], rdi
+
+.read_pattern:
+    cmp rdi, rsi                ; Test bound
+    ja .input_parse_done        ; End of patterns - done
+
+    movzx ebx, byte [rdi]       ; Load sign
+    inc rdi                     ; index++
+
+    cmp bl, 33                  ; Lowwerbound
+    jb .exit_error
+
+    cmp bl, 126                 ; Upperbound
+    ja .exit_error
+
+    sub bl, 33                  ; Normalize sign for array indexing
+    movzx rax, bl               ; rax will keep the sign we pattern
+    mov rdx, rdi                ; rdx will keep the start position of pattern
+    inc rdx
+
+; For given sign read swap characters
+.read_rule_loop:
+    cmp rdi, rsi                ; Test bound
+    ja .exit_error              ; No new line at the end of the rule
+
+    movzx ebx, byte [rdi]       ; Load sign
+    inc rdi                     ; index++
+
+    cmp bl, NEW_LINE            ; End of the rule
+    je .rule_found
+
+    jmp .read_rule_loop
+
+.rule_found:
+    lea rcx, [patterns]
+    shl rax, 4                  ; 2^4 = 16 - frame size of pattern_nodo
+    mov [rcx + rax], rdx        ; pattern_node.start
+    mov [rcx + rax + 8] , rdi   ; pattern_node.end
+
+    jmp .read_pattern
+
+.input_parse_done:
+
 
 .exit:
     xor rdi, rdi
