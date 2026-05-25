@@ -18,12 +18,15 @@ section .bss
 
     read_buf        resq 1      ; Read buffer start
     read_cup        resq 1      ; Read buffer cup - the size of allocated memory
-    read_end        resq 1      ; Read input end pointer
+    read_end        resq 1      ; Read input end
 
     first_line_end  resq 1      ; Length of first line
 
     write_buf       resq 1      ; Write buffer start
-    write_cup       resq 1      ; Write buffer cup - the size of allocated memory
+    write_end       resq 1      ; Write buffer end
+
+    stack_buf       resq 1      ; Stack buffer start
+    stack_end       resq 1      ; Stack buffer end
 
     ; Pattern array
     ;typedef struct pattern_node{
@@ -226,11 +229,13 @@ _start:
 
 ;%%%% MAIN DFS LOOP %%%%
 
-    ; Allocate write buffer (4 kB)
+    ; Allocate write buffer (4 kB) and stack_space (n * 16 B)
+    mov rsi, [target_n]
+    shl rsi, 4              ; Calculate stack_space
     ; MMAP
     mov rax, SYS_MMAP
     xor rdi, rdi
-    mov rsi, 4096           ; This amount we want to allocate
+    add rsi, 4096           ; stack_space + write buffer
     mov rdx, PROT_FLAGS
     mov r8, -1              ; Requiered for anonymous
     xor r9, r9              ; Offset = 0
@@ -240,10 +245,51 @@ _start:
     cmp rax, -4095          ; Handle errors
     jmp .exit_error
 
-    mov [write_buf], rax    ; Save given memory
-    mov [write_cup], 4096
+    mov [write_buf], rax    ; write buf start
+    add rax, 4097
+    mov [write_end], rax    ; write buf end
+
+    mov [stack_buf], rax    ; stack buf start
+    add rax, rsi
+    sub rax, 4096
+    mov [stack_end], rax    ; stack buf end
 
 
+; Main loop
+    mov r8,  [target_n]           ; Iterations to go
+    mov r9,  [read_buf]           ; Start of processed string
+    mov r10, [first_line_end]     ; End of processed string
+    mov r12, [write_buf]          ; Write position
+    mov r13, [write_end]          ; Write end bound
+
+.process_epoch:
+    test r8, r8;
+    jz  .write_to_buffer
+.write_done:
+
+
+
+.write_to_buffer:
+    cmp r12, r13;
+    jae .flush_write
+
+    cmp r9, r10                 ; Test bounds
+    jae .write_done
+
+    mov bl, [r9]                ; Load char to ebx
+    mov [r12], bl               ; Save char to write buffer
+
+    jmp .write_to_buffer
+
+.flush_write:
+    mov rax, SYS_WRITE
+    mov rdi, STD_OUT_FD         ; File descriptor
+    mov rsi, [write_buf]        ; Start of write
+    mov rdx, 4096               ; Number of bytes to write
+    syscall
+
+    mov r12, rsi                ; reset write position
+    jmp .write_to_buffer        ; Continue writing
 
 .exit:
     xor rdi, rdi
