@@ -16,10 +16,14 @@ section .bss
     align 8
     target_n resq 1
 
-    read_buf        resq 1      ; Read buffer beggining pointer
-    read_cup        resq 1      ; Read buffer cup - end of allocated memory
+    read_buf        resq 1      ; Read buffer start
+    read_cup        resq 1      ; Read buffer cup - the size of allocated memory
     read_end        resq 1      ; Read input end pointer
+
     first_line_end  resq 1      ; Length of first line
+
+    write_buf       resq 1      ; Write buffer start
+    write_cup       resq 1      ; Write buffer cup - the size of allocated memory
 
     ; Pattern array
     ;typedef struct pattern_node{
@@ -149,8 +153,8 @@ _start:
 .read_done:
     lea rcx, [rbp + r12]
     mov [read_end], rcx
-    lea rcx, [rbp + rbx]
-    mov [read_cup], rcx
+
+    mov [read_cup], rbx
 
 ;%%%% PARSE INPUT %%%%
 
@@ -161,8 +165,8 @@ _start:
     cmp rdi, rsi                ; Test bounds
     ja .exit_error              ; Out of bound - no newline found
 
-    movzx ebx, byte [rdi]        ; Load sign
-    inc rdi;                     ; index ++
+    movzx ebx, byte [rdi]       ; Load sign
+    inc rdi;                    ; index ++
 
     cmp bl, NEW_LINE            ; Check for newline
     je .first_line_end          ;
@@ -172,9 +176,12 @@ _start:
 .first_line_end:
     mov [first_line_end], rdi
 
+    ; Read patterns table
+    lea rcx, [patterns]         ; rcx will keep patters table pointer
+
 .read_pattern:
     cmp rdi, rsi                ; Test bound
-    ja .input_parse_done        ; End of patterns - done
+    jae .input_parse_done        ; End of patterns - done
 
     movzx ebx, byte [rdi]       ; Load sign
     inc rdi                     ; index++
@@ -204,14 +211,38 @@ _start:
     jmp .read_rule_loop
 
 .rule_found:
-    lea rcx, [patterns]
-    shl rax, 4                  ; 2^4 = 16 - frame size of pattern_nodo
+    shl rax, 4                  ; 2^4 = 16 - frame size of pattern_node
+
+    mov r8, [rcx + rax]         ; Test whether there already
+    test r8, r8;                ;  is a pattern for that sign
+    jnz .exit_error             ; there should be none
+
     mov [rcx + rax], rdx        ; pattern_node.start
     mov [rcx + rax + 8] , rdi   ; pattern_node.end
 
     jmp .read_pattern
 
 .input_parse_done:
+
+;%%%% MAIN DFS LOOP %%%%
+
+    ; Allocate write buffer (4 kB)
+    ; MMAP
+    mov rax, SYS_MMAP
+    xor rdi, rdi
+    mov rsi, 4096           ; This amount we want to allocate
+    mov rdx, PROT_FLAGS
+    mov r8, -1              ; Requiered for anonymous
+    xor r9, r9              ; Offset = 0
+    mov r10, MAP_FLAGS
+    syscall
+
+    cmp rax, -4095          ; Handle errors
+    jmp .exit_error
+
+    mov [write_buf], rax    ; Save given memory
+    mov [write_cup], 4096
+
 
 
 .exit:
