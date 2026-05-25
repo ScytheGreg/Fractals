@@ -7,6 +7,8 @@ section .rodata
     SYS_MMAP        equ 9
     SYS_MUNMAP      equ 11
 
+    NEW_LINE        equ 10
+
     PROT_FLAGS      equ 3      ; PROT_READ | PROT_WRITE
     MAP_FLAGS       equ 0x22   ; MAP_PRIVATE | MAP_ANONYMOUS
 
@@ -15,9 +17,9 @@ section .bss
     target_n resq 1
 
     read_buf        resq 1      ; Read buffer beggining pointer
-    read_cup        resq 1      ; Read buffer cup
-    read_len        resq 1      ; Input length
-    first_line_len  resq 1      ; Length of first line
+    read_cup        resq 1      ; Read buffer cup - end of allocated memory
+    read_end        resq 1      ; Read input end pointer
+    first_line_end  resq 1      ; Length of first line
 
     ; Pattern array
     ;typedef struct pattern_node{
@@ -73,7 +75,8 @@ _start:
 
 ;%%%% READ INPUT to READ BUFFER %%%%%
 
-    ; Init read buffer
+    ; Registers:
+    ; rbp                   - read buffer start pointer
     xor rbx, rbx            ; Size of allocated memory for read buffer
     mov r13, 1024           ; This amount we want to be allocated
     xor r12, r12            ; Writing lenght
@@ -144,28 +147,30 @@ _start:
     jmp .read_loop
 
 .read_done:
-    mov [read_len], r12
-    mov [read_cup], rbx
+    lea rcx, [rbp + r12]
+    mov [read_end], rcx
+    lea rcx, [rbp + rbx]
+    mov [read_cup], rcx
 
 ;%%%% PARSE INPUT %%%%
 
     ; Find newline
     mov rdi, [read_buf]         ; Sign pointer
-    lea rsi, [rdi + r12]        ; Bound
+    mov rsi, [read_end]         ; Bound
 .first_line_loop:
     cmp rdi, rsi                ; Test bounds
     ja .exit_error              ; Out of bound - no newline found
 
-    movzx bl, [rdi]             ; Load sign
-    inc rdi;                    ; index ++
+    movzx ebx, byte [rdi]        ; Load sign
+    inc rdi;                     ; index ++
 
-    cmp bl, '\n'                ; Check for newline
+    cmp bl, NEW_LINE            ; Check for newline
     je .first_line_end          ;
 
     jmp .first_line_loop
 
 .first_line_end:
-
+    mov [first_line_end], rdi
 
 .exit:
     xor rdi, rdi
