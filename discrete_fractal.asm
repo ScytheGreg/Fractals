@@ -198,7 +198,7 @@ _start:
     sub bl, 33                  ; Normalize sign for array indexing
     movzx rax, bl               ; rax will keep the sign we pattern
     mov rdx, rdi                ; rdx will keep the start position of pattern
-    inc rdx
+
 
 ; For given sign read swap characters
 .read_rule_loop:
@@ -227,7 +227,9 @@ _start:
     jnz .exit_error             ; there should be none
 
     mov [rcx + rax], rdx        ; pattern_node.start
-    mov [rcx + rax + 8] , rdi   ; pattern_node.end
+    mov rdx, rdi;
+    dec rdx                     ; Calculate end pointer
+    mov [rcx + rax + 8] , rdx   ; pattern_node.end
 
     jmp .read_pattern
 
@@ -249,7 +251,7 @@ _start:
     syscall
 
     cmp rax, -4095          ; Handle errors
-    jmp .exit_error
+    ja .exit_error
 
     mov [write_buf], rax    ; write buf start
     add rax, 4097
@@ -269,7 +271,7 @@ _start:
     mov r13, [write_end]          ; Write end bound
     mov r14, [stack_buf]          ; Stack position
 
-    mov rbx, [patterns]           ; Stable reference to patterns
+    lea rbx, [patterns]             ; Stable reference to patterns
     mov r15, r8                   ; Stable iterations number to detect end of all epochs
 
     mov [r14], r9                 ; Start position of zero iteration
@@ -282,9 +284,13 @@ _start:
     test r8, r8;                  ; Check if last iteration
     jz  .write_to_buffer
 .write_done:                      ; After write there will be epoch descrease
-    test r9, r10                  ; Test if every sign from epoch has been processed
+    cmp r9, r10                   ; Test if every sign from epoch has been processed
     jae .decrease_epoch
 ; Increase epoch
+    mov rcx, [r14]                      ; Increase start position of current string
+    inc rcx
+    mov [r14], rcx
+
     add r14, 16                    ; Increase stack position
     dec r8                         ; Decrease epochs to go
 
@@ -293,10 +299,12 @@ _start:
     shl rax, 4                     ; Multiply by frame size of patterns
 
     mov rcx, [rbx + rax]           ; Load start of next pattern through rcx
-    mov [rdx], rcx                 ;    to next epoch start
+    mov [r14], rcx                 ;    to next epoch start
 
     mov rcx, [rbx + rax + 8]       ; Load end of next pattern through rcx
-    mov [rdx + 8], rcx             ;    to next epoch end
+    mov [r14 + 8], rcx             ;    to next epoch end
+
+
 
     jmp .process_epoch
 
@@ -310,14 +318,16 @@ _start:
     jmp .process_epoch
 
 .write_to_buffer:
-    cmp r12, r13;
+    cmp r12, r13;               ; Test write_buf bounds
     jae .flush_write
 
-    cmp r9, r10                 ; Test bounds
+    cmp r9, r10                 ; Test string bounds
     jae .write_done
 
-    mov al, [r9]                ; Load char to ebx
+    movzx rax, byte [r9]                ; Load char to ebx
     mov [r12], al               ; Save char to write buffer
+    inc r9                      ; string_index++
+    inc r12                     ; write_index++
 
     jmp .write_to_buffer
 
