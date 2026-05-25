@@ -28,8 +28,8 @@ section .bss
     stack_buf       resq 1      ; Stack buffer start
     stack_end       resq 1      ; Stack buffer end
 
-    ; Pattern array
-    ;typedef struct pattern_node{
+    ; Pattern array and stack structure:
+    ;typedef struct pattern_node (stack_node) {
     ;      size_t start
     ;      size_t end
     ;}
@@ -38,12 +38,31 @@ section .bss
     patterns        resq 188     ; (126 - 32) * 2
 
 
-
 section .text
-
 default rel
-
 global _start
+
+memory_cleanup:
+    ; Read buffer cleanup
+        mov rax, SYS_MUNMAP
+        mov rdi, [read_buf]     ; Source
+        mov rsi, [read_cup]     ; Length
+        syscall
+
+        xor rdi, rdi
+        cmp rax, -4095          ; Set rdi to exit syscall (error in case of
+        seta dil                ;   munmap error)
+
+        mov rax, SYS_MUNMAP
+        mov rdi, [write_buf]    ; Source
+        mov rsi, [stack_end]    ; Length = stack_end - write_buf
+        sub rsi,  rdi           ;    (those were allocated together)
+        syscall
+
+        cmp rax, -4095          ; Set rdi to exit syscall in case any
+        seta cl                 ;   munmap has failed
+        and dil, cl             ;   (and previous rdi, and current posible error)
+        ret
 
 _start:
 ;%%%%% PARSE 'n' PARAMETER %%%%%
@@ -137,7 +156,7 @@ _start:
     mov rsi, [read_buf]
     add rsi, r12
     mov rdx, rbx                    ; Max number of read characters - remaining space
-    sub rdx, r12
+    sub rdx, r12                    ;           = space - busy space
     syscall
 
     cmp rax, -4095                  ; Handle errors
@@ -367,12 +386,14 @@ _start:
     jmp .write_to_buffer        ; Continue writing
 
 .exit:
-    xor rdi, rdi
+    call memory_cleanup
+    ; rdi is already set by read_cleanup
     mov rax, SYS_EXIT
     syscall
 
 
 .exit_error:
+    call memory_cleanup
     mov rdi, 1
     mov rax, SYS_EXIT
     syscall
