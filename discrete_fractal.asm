@@ -50,23 +50,23 @@ memory_cleanup:
 
     xor rdi, rdi
     cmp rax, -4095              ; Set rdi to exit syscall (error in case of
-    seta dil                    ;   munmap error)
+    seta dil                    ;     munmap error)
 
     mov rax, SYS_MUNMAP
     mov rdi, [write_buf]        ; Source
     mov rsi, [stack_end]        ; Length = stack_end - write_buf
-    sub rsi,  rdi               ;    (those were allocated together)
+    sub rsi,  rdi               ;     (those were allocated together)
     syscall
 
     cmp rax, -4095              ; Set rdi to exit syscall in case any
-    seta cl                     ;   munmap has failed
-    and dil, cl                 ;   (and previous rdi, and current posible error)
+    seta cl                     ;     munmap has failed
+    and dil, cl                 ;     (and previous rdi, and current posible error)
     ret
 
 _start:
 ;%%%%% PARSE 'n' PARAMETER %%%%%
     mov rbp, [rsp]              ; if(argc != 2)
-    cmp rbp, 2                  ;   exit(1)
+    cmp rbp, 2                  ;     exit(1)
     jne .exit_error
 
     mov rbp, [rsp + 16]         ; argv[1]
@@ -79,10 +79,10 @@ _start:
     jz .parse_n_done
 
     cmp bl, '0'                 ; if (c < '0')
-    jb .exit_error              ;   exit(1)
+    jb .exit_error              ;     exit(1)
 
     cmp bl, '9'                 ; if (c > '9')
-    ja .exit_error              ;   exit(1)
+    ja .exit_error              ;     exit(1)
 
     sub rbx, '0'
 
@@ -153,19 +153,19 @@ _start:
     mov rsi, [read_buf]
     add rsi, r12
     mov rdx, rbx                ; Max number of read characters - remaining space
-    sub rdx, r12                ;           = space - busy space
+    sub rdx, r12                ;     = space - busy space
     syscall
 
     cmp rax, -4095              ; Handle errors
-    jae .exit_error             ;   exit(1)
+    jae .exit_error             ;     exit(1)
 
     test rax, rax               ; if EOF
-    jz .read_done               ;   break
+    jz .read_done               ;     break
 
     add r12, rax                ; Add number of read digits to string length
 
     cmp rbx, r12                ; If no whole memory is used
-    jne .read_loop              ;       do not double memory
+    jne .read_loop              ;     do not double memory
     shl r13, 1                  ; Double needed memory
     jmp .read_loop
 
@@ -207,7 +207,7 @@ _start:
 
 .read_pattern:
     cmp rdi, rsi                ; Test bound
-    jae .input_parse_done        ; End of patterns - done
+    jae .input_parse_done       ; End of patterns - done
 
     movzx ebx, byte [rdi]       ; Load sign
     inc rdi                     ; index++
@@ -245,7 +245,7 @@ _start:
     shl rax, 4                  ; 2^4 = 16 - frame size of pattern_node
 
     mov r8, [rcx + rax]         ; Test whether there already
-    test r8, r8;                ;  is a pattern for that sign
+    test r8, r8;                ;     is a pattern for that sign
     jnz .exit_error             ; there should be none
 
     mov [rcx + rax], rdx        ; pattern_node.start
@@ -324,10 +324,10 @@ _start:
     mov rcx, [rbx + rax]         ; Load start of next pattern through rcx...
     test rcx, rcx                ; Check if rule exists
     jz .no_rule_found
-    mov [r14], rcx               ;    ...to next epoch start
+    mov [r14], rcx               ;     ...to next epoch start
 
     mov rcx, [rbx + rax + 8]     ; Load end of next pattern through rcx
-    mov [r14 + 8], rcx           ;    to next epoch end
+    mov [r14 + 8], rcx           ;     to next epoch end
 
     jmp .process_epoch
 
@@ -369,7 +369,7 @@ _start:
     mov rdi, STD_OUT_FD         ; File descriptor
     mov rsi, [write_buf]        ; Start of write
     mov rdx, r12                ; Number of bytes to write
-    sub rdx, rsi                ;   = position - start
+    sub rdx, rsi                ;     = position - start
     syscall
 
     cmp r8, r15                 ; Check end of everything
