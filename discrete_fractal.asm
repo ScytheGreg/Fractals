@@ -106,14 +106,13 @@ _start:
 
 .read_loop:
     ; Make space for data
-    cmp rbx, r13
+    cmp rbx, r13                ; Check required memory is allocated
     jae .space_buf_ok
     ; No space for input
-
     ; MMAP
     mov rax, SYS_MMAP
     xor rdi, rdi
-    mov rsi, r13                ; This amount we want to allocata
+    mov rsi, r13                ; This amount we want to allocate
     mov rdx, PROT_FLAGS
     mov r8, -1                  ; Requiered for anonymous
     xor r9, r9                  ; Offset = 0
@@ -148,12 +147,13 @@ _start:
     mov rbx, r13                ; Update amount of allocated memory
 
 .space_buf_ok:
+    ; Read from standard input
     mov rax, SYS_READ
     mov rdi, STD_IN_FD
     mov rsi, [read_buf]
     add rsi, r12
-    mov rdx, rbx                ; Max number of read characters - remaining space
-    sub rdx, r12                ;     = space - busy space
+    mov rdx, rbx                ; Max number of read characters -
+    sub rdx, r12                ;     remaining space = space - busy space
     syscall
 
     cmp rax, -4095              ; Handle errors
