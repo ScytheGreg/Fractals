@@ -24,34 +24,43 @@ fi
 rm discrete_fractal.o
 echo -e "${GREEN}Skompilowano pomyślnie.${NC}\n"
 
+print_stats() {
+      if [ $? -ne 0 ]; then
+          echo -e "${RED}[X] Program zakończył się błędem!${NC}"
+          cat .time_err | grep -E "Command|Exit status"
+      else
+          echo -e "${GREEN}[V] Sukces!${NC}"
+          # Wyciąganie kluczowych danych z raportu time
+          local user_time=$(grep "User time" .time_err | awk '{print $4}')
+          local sys_time=$(grep "System time" .time_err | awk '{print $4}')
+          local max_ram=$(grep "Maximum resident set size" .time_err | awk '{print $6}')
+
+          echo "    Czas procesora (User):   ${user_time}s"
+          echo "    Czas systemowy (Sys):    ${sys_time}s"
+          echo "    Maksymalny RAM (RSS):    ${max_ram} KB ($(echo "scale=2; $max_ram/1024" | bc) MB)"
+      fi
+      echo ""
+      rm -f .time_err
+}
+
+print_test(){
+      local title="$1"
+      local n_val="$2"
+      echo -e "${BLUE}=== TEST: $title (n = $n_val) ===${NC}"
+}
+
 # Funkcja pomocnicza do uruchamiania testu z pomiarem czasu i RAMu
 run_bench() {
     local title="$1"
     local n_val="$2"
     local input_data="$3"
 
-    echo -e "${BLUE}=== TEST: $title (n = $n_val) ===${NC}"
+    print_test "$title" "$n_val"
 
     # Wykorzystujemy /usr/bin/time do przechwycenia czasu i pamięci (RSS)
     # Wyjście przekierowujemy do /dev/null, żeby mierzyć czysty algorytm, a nie prędkość terminala
     /usr/bin/time -v $EXE "$n_val" <<< "$input_data" > /dev/null 2> .time_err
-
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}[X] Program zakończył się błędem!${NC}"
-        cat .time_err | grep -E "Command|Exit status"
-    else
-        echo -e "${GREEN}[V] Sukces!${NC}"
-        # Wyciąganie kluczowych danych z raportu time
-        local user_time=$(grep "User time" .time_err | awk '{print $4}')
-        local sys_time=$(grep "System time" .time_err | awk '{print $4}')
-        local max_ram=$(grep "Maximum resident set size" .time_err | awk '{print $6}')
-
-        echo "    Czas procesora (User):   ${user_time}s"
-        echo "    Czas systemowy (Sys):    ${sys_time}s"
-        echo "    Maksymalny RAM (RSS):    ${max_ram} KB ($(echo "scale=2; $max_ram/1024" | bc) MB)"
-    fi
-    echo ""
-    rm -f .time_err
+    print_stats
 }
 
 # ------------------------------------------------------------------------------
@@ -59,7 +68,7 @@ run_bench() {
 # ------------------------------------------------------------------------------
 # Sprawdza poprawne wyjście z pętli bez wykonywania iteracji
 TEST_1_INP=$(printf "A\nAAB\nBA\n")
-run_bench "Przypadek brzegowy n=0" "0" "$TEST_1_INP"
+run_bench "Przypadek brzegowy" "0" "$TEST_1_INP"
 
 # ------------------------------------------------------------------------------
 # TEST 2: Wykładnicza eksplozja (Test strumieniowania i bufora 64KB)
@@ -84,9 +93,21 @@ run_bench "Głęboki stos DFS (Głębokość 100k)" "100000" "$TEST_3_INP"
 # Test dla n = 2 000 000 (Stos zajmie ok. 48 MB)
 run_bench "Głęboki stos DFS (Głębokość 2 mln)" "2000000" "$TEST_3_INP"
 
-# ------------------------------------------------------------------------------
-# TEST 4: Walidacja błędów i przepełnienia parsera
-# ------------------------------------------------------------------------------
-# Próba podania n przekraczającego 32 bity (np. 5000000000) - program powinien natychmiast
-# wyjść z kodem błędu 1 i nie alokować zbędnej pamięci.
-run_bench "Parser - Przepełnienie 32-bitowego n (> 2^32-1)" "5000000000" "$TEST_3_INP"
+
+
+
+# Test dużego wejścia
+
+if [ ! -f  "tests/big_input.in" ]
+then
+  echo -e "Przygotowywanie danych..."
+  chmod +x tests/python/big_input.py
+  ./tests/python/big_input.py > tests/big_input.in
+fi
+
+print_test "Test dużego wejścia (3e9 znaków)" "4"
+
+/usr/bin/time -v $EXE 4 < tests/big_input.in > /dev/null 2> .time_err
+print_stats
+
+rm tests/big_input.in

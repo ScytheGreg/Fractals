@@ -1,6 +1,7 @@
 .idea/
 discrete_fractal
 mem_search
+tests/big_input.in
 
 # Prerequisites
 *.d
