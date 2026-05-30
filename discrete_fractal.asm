@@ -29,10 +29,10 @@ section .bss
     stack_end       resq 1      ; Stack buffer end
 
     ; Pattern array and stack structure:
-    ;typedef struct pattern_node (stack_node) {
-    ;      size_t start
-    ;      size_t end
-    ;}
+    ; typedef struct pattern_node (stack_node) {
+    ;       size_t start
+    ;       size_t end
+    ; }
     ; Every supported ascii number (from 33 to 126) takes two qwords
 
     patterns        resq 188     ; (126 - 32) * 2
@@ -364,7 +364,7 @@ _start:
     mov [r12], byte NEW_LINE    ; Add new line at the end
     inc r12
 
-.flush_write:
+.flush_write:   
     mov rax, SYS_WRITE
     mov rdi, STD_OUT_FD         ; File descriptor
     mov rsi, [write_buf]        ; Start of write
