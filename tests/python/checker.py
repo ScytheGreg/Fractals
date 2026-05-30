@@ -91,11 +91,16 @@ TEST_CASES = [
         15,
         "A\nBC\nCA\nAB\n"
     ),
-    (
-        "Brak wyjścia n = 10",
-        10,
-        "aaaa\nabbb\nbccc\ncddd\ndeee\nefff\nfggg\ng\n"
-    )
+        (
+            "Brak wyjścia n = 10",
+            10,
+            "aaaa\nabbb\nbccc\ncddd\ndeee\nefff\nfggg\ng\n"
+        ),
+        (
+            "Duże wejście",
+            5,
+            ('A' * int(1e7) + 'B' * int(1e7) + "\nA\n")
+        )
 ]
 
 # =====================================================================
