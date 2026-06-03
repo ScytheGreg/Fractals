@@ -12,6 +12,14 @@ mem_search: mem_search.asm
 	nasm -f elf64 mem_search.asm -o mem_search.o
 	ld mem_search.o -o mem_search
 
+bench:
+	./tests/benchmark.sh
+	./tests/python/streaming_benchmark.py
+
+fuzz:
+	./tests/python/checker.py
+	./tests/python/fuzz_runner.sh
+
 .PHONY: all clean bench fuzz
 
 clean:
