@@ -9,8 +9,8 @@ section .rodata
     STD_OUT_FD      equ 1
     NEW_LINE        equ 10
 
-    PROT_FLAGS      equ 3      ; PROT_READ | PROT_WRITE
-    MAP_FLAGS       equ 0x22   ; MAP_PRIVATE | MAP_ANONYMOUS
+    PROT_FLAGS      equ 3       ; PROT_READ | PROT_WRITE
+    MAP_FLAGS       equ 0x22    ; MAP_PRIVATE | MAP_ANONYMOUS
 
 section .bss
     align 8
@@ -35,7 +35,7 @@ section .bss
     ; }
     ; Every supported ascii number (from 33 to 126) takes two qwords
 
-    patterns        resq 188     ; (126 - 32) * 2
+    patterns        resq 188    ; (126 - 32) * 2
 
 section .text
 default rel
@@ -98,8 +98,8 @@ _start:
     mov [target_n], rdi         ; Save n in a global variable
 
 ;%%%% READ INPUT to READ BUFFER %%%%%
-    ; Registers:
-    ; rbp                       - read buffer start pointer
+                                ; Registers:
+                                ;   rbp - read buffer start pointer
     xor rbx, rbx                ; Size of allocated memory for read buffer
     mov r13, 1024               ; This amount we want to be allocated
     xor r12, r12                ; Writing lenght
@@ -184,7 +184,7 @@ _start:
     ja .exit_error              ; Out of bound - no newline found
 
     movzx ebx, byte [rdi]       ; Load sign
-    inc rdi;                    ; index++
+    inc rdi;                        ; index++
 
     cmp bl, NEW_LINE            ; Check for newline
     je .first_line_end          ;
