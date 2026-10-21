@@ -20,7 +20,7 @@ ld -pie -I /lib64/ld-linux-x86-64.so.2 --fatal-warnings -o discrete_fractal disc
 ## Usage
 
 ```bash
-./discrete_fractal <iterations> < input.txt
+./discrete_fractal <iterations> < example_input.txt
 ```
 
 The iteration count is a base-10 integer from 0 through 2³²−1. Input is line-based:
