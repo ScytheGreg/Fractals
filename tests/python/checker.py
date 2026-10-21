@@ -2,18 +2,18 @@
 import subprocess
 import sys
 
-# Konfiguracja
+# Configuration
 EXEC_PATH = "./discrete_fractal"
 
 # =====================================================================
-# 1. WZORCOWA IMPLEMENTACJA (REFERENCJA)
+# 1. REFERENCE IMPLEMENTATION
 # =====================================================================
 def generate_reference_output(n, input_data):
     """
-    Generuje poprawny wynik w Pythonie używając prostej rekurencji (DFS).
-    Dzięki temu zachowuje się dokładnie tak samo jak Twój kod w ASM.
+    Generate expected output in Python using simple recursion (DFS).
+    This mirrors the behavior of the assembly implementation.
     """
-    # Parsowanie wejścia
+    # Parse input.
     lines = input_data.strip('\n').split('\n')
     if not lines or not lines[0]:
         return "\n"
@@ -26,7 +26,7 @@ def generate_reference_output(n, input_data):
 
     output = []
 
-    # Funkcja rekurencyjna (DFS)
+    # Recursive function (DFS).
     def dfs(char, depth):
         if depth == 0 or char not in rules:
             output.append(char)
@@ -34,70 +34,70 @@ def generate_reference_output(n, input_data):
             for c in rules[char]:
                 dfs(c, depth - 1)
 
-    # Przetwarzanie każdego znaku ciągu startowego
+    # Process each character in the starting string.
     for c in start_str:
         dfs(c, n)
 
-    # ASM dodaje znak nowej linii na samym końcu
+    # Assembly adds a newline at the end.
     return "".join(output) + "\n"
 
 # =====================================================================
-# 2. ZESTAW TESTÓW
+# 2. TEST CASES
 # =====================================================================
-# Format: ("Nazwa testu", n, "Dane wejściowe")
+# Format: ("Test name", n, "Input data")
 TEST_CASES = [
     (
-        "Przypadek brzegowy n=0",
+        "Boundary case n=0",
         0,
         "A\nAB\nBA\n"
     ),
     (
-        "Proste zastąpienie n=1",
+        "Single replacement n=1",
         1,
         "A\nAB\nBA\n"
     ),
     (
-        "Klasyczny L-system (Algae) n=6",
+        "Classic L-system (Algae) n=6",
         6,
         "A\nAB\nBA\n"
     ),
     (
-        "Zbiór Cantora n=4",
+        "Cantor set n=4",
         4,
         "A\nABA\nBBB\n"
     ),
     (
-        "Brakujące reguły (znaki stałe)",
+        "Missing rules (unchanged symbols)",
         3,
-        "A-B+A\nAA+\n" # Tylko 'A' ma regułę, '-' i 'B' i '+' zostają bez zmian
+        "A-B+A\nAA+\n" # Only 'A' has a rule; '-', 'B', and '+' remain unchanged.
     ),
     (
-        "Brak reguł (pusty słownik) n=10",
+        "No rules (empty dictionary) n=10",
         10,
-        "HELLO_WORLD\n" # Program powinien po prostu zwrócić startowy string
+        "HELLO_WORLD\n" # The program should return the starting string unchanged.
     ),
     (
-        "Długie reguły (eksplozja objętości) n=3",
+        "Long rules (rapid growth) n=3",
         3,
         "X\nXXYXZXYX\nYXX\nZYYYYY\n"
     ),
     (
-        "Usunięcie znaku (pusta reguła) n=2",
+        "Character deletion (empty rule) n=2",
         2,
-        "ABC\nB\n" # 'B' zastępowane jest niczym (pusty ciąg za literą B)
+        "ABC\nB\n" # 'B' is replaced with nothing (empty replacement string).
     ),
     (
-        "Głęboka permutacja n=15",
+        "Deep permutation n=15",
         15,
         "A\nBC\nCA\nAB\n"
     ),
         (
-            "Brak wyjścia n = 10",
+            "Empty output n = 10",
             10,
             "aaaa\nabbb\nbccc\ncddd\ndeee\nefff\nfggg\ng\n"
         ),
         (
-            "Duże wejście",
+            "Large input",
             5,
             ('A' * int(1e7) + 'B' * int(1e7) + "\nA\n")
         )
@@ -107,7 +107,7 @@ TEST_CASES = [
 # 3. SPRAWDZARKA (DRIVER)
 # =====================================================================
 def run_tests():
-    print(f"=== URUCHAMIANIE TESTÓW POPRAWNOŚCI DLA: {EXEC_PATH} ===")
+    print(f"=== RUNNING CORRECTNESS TESTS FOR: {EXEC_PATH} ===")
     passed = 0
     total = len(TEST_CASES)
 
@@ -121,18 +121,18 @@ def run_tests():
                 input=inp,
                 text=True,
                 capture_output=True,
-                timeout=5 # Bezpiecznik, żeby testy nie wisiały w nieskończoność
+                timeout=5 # Prevent tests from hanging indefinitely.
             )
         except FileNotFoundError:
-            print(f"\n[BŁĄD] Nie znaleziono pliku {EXEC_PATH}. Skompiluj najpierw program!")
+            print(f"\n[ERROR] Executable {EXEC_PATH} not found. Build the program first!")
             sys.exit(1)
         except subprocess.TimeoutExpired:
-            print(f"\n[FAIL] Przekroczono czas wykonania (Timeout)!")
+            print(f"\n[FAIL] Execution timed out!")
             continue
 
         if process.returncode != 0:
-            print(f"\n[FAIL] Program asemblerowy zwrócił błąd (kod {process.returncode})!")
-            print(f"Błąd z stderr: {process.stderr.strip()}")
+            print(f"\n[FAIL] Assembly program returned an error (status {process.returncode})!")
+            print(f"stderr: {process.stderr.strip()}")
             continue
 
         asm_output = process.stdout
@@ -146,16 +146,16 @@ def run_tests():
             passed += 1
         else:
             print("\033[0;31mFAIL\033[0m")
-            print("--- OCZEKIWANO (Referencja) ---")
-            # Skracamy log do 100 znaków, żeby nie zalać terminala przy dużych stringach
+            print("--- EXPECTED (Reference) ---")
+            # Limit logs to 100 characters for large strings.
             print(ref_output[:100] + ("..." if len(ref_output) > 100 else ""))
-            print("--- OTRZYMANO (Asembler) ---")
+            print("--- ACTUAL (Assembly) ---")
             print(asm_output[:100] + ("..." if len(asm_output) > 100 else ""))
             print("-------------------------------")
 
-    print(f"\nWynik końcowy: {passed}/{total} testów zaliczonych.")
+    print(f"\nFinal result: {passed}/{total} tests passed.")
     if passed == total:
-        print("\033[0;32m[!] Twój asembler to solidna maszyna! Gratulacje!\033[0m")
+        print("\033[0;32m[!] All tests passed!\033[0m")
     else:
         sys.exit(1)
 

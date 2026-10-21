@@ -4,7 +4,7 @@ import sys
 import time
 
 def reference_stream(axiom, rules, n):
-    """Generator, który leniwie (on-the-fly) zwraca kolejne znaki fraktala."""
+    """Generator that lazily yields successive fractal characters."""
     def dfs(char, depth):
         if depth == 0 or char not in rules:
             yield char
@@ -14,16 +14,16 @@ def reference_stream(axiom, rules, n):
 
     for c in axiom:
         yield from dfs(c, n)
-    yield '\n' # ASM dodaje nową linię na końcu
+    yield '\n' # Assembly adds a newline at the end.
 
 def run_streaming_test(n, axiom, rules_list):
-    # Parsowanie reguł dla referencji
+    # Parse rules for the reference implementation.
     rules = {r[0]: r[1:] for r in rules_list if r}
 
-    # Przygotowanie wejścia dla programu ASM
+    # Prepare input for the assembly program.
     asm_input = axiom + "\n" + "\n".join(rules_list) + "\n"
 
-    # Uruchomienie procesu ASM z przekierowaniem stdout do potoku
+    # Run the assembly process with stdout connected to a pipe.
     process = subprocess.Popen(
         ["./discrete_fractal", str(n)],
         stdin=subprocess.PIPE,
@@ -33,22 +33,22 @@ def run_streaming_test(n, axiom, rules_list):
         bufsize=1 # Buforowanie linia po linii / blokowe
     )
 
-    # Wstrzyknięcie danych wejściowych i zamknięcie stdin, żeby ASM zaczął działać
+    # Send input and close stdin so the assembly program can start.
     process.stdin.write(asm_input)
     process.stdin.close()
 
-    print(f"Uruchamiam test strumieniowy: n={n}...")
+    print(f"Running streaming test: n={n}...")
     start_time = time.time()
 
     chars_checked = 0
     mismatch = False
 
-    # Inicjalizacja generatora referencyjnego
+    # Initialize the reference generator.
     ref_gen = reference_stream(axiom, rules, n)
 
-    # Czytamy z ASM tak długo, jak sypie znakami
+    # Read assembly output until the stream ends.
     while True:
-        # Czytamy porcję danych (np. blok 4KB, żeby nie dławić wydajności pojedynczymi bajtami)
+        # Read chunks (for example, 4 KB) to avoid per-byte I/O overhead.
         asm_chunk = process.stdout.read(4096)
         if not asm_chunk:
             break
@@ -57,28 +57,28 @@ def run_streaming_test(n, axiom, rules_list):
             try:
                 ref_char = next(ref_gen)
             except StopIteration:
-                print(f"\n[BŁĄD] ASM wysłał za dużo znaków! Pozycja: {chars_checked}")
+                print(f"\n[ERROR] Assembly produced extra output at position {chars_checked}.")
                 mismatch = True
                 break
 
             if asm_char != ref_char:
-                print(f"\n[BŁĄD] Niezgodność znaków na pozycji {chars_checked}!")
+                print(f"\n[ERROR] Character mismatch at position {chars_checked}.")
                 print(f"ASM: '{asm_char}', Referencja: '{ref_char}'")
                 mismatch = False
                 break
 
             chars_checked += 1
             if chars_checked % 10_000_000 == 0:
-                print(f" -> Zweryfikowano pomyślnie {chars_checked // 1_000_000} mln znaków...", end="\r")
+                print(f" -> Successfully checked {chars_checked // 1_000_000} million characters...", end="\r")
 
         if mismatch:
             break
 
-    # Sprawdzenie, czy referencja nie miała więcej znaków
+    # Check whether the reference has more output.
     if not mismatch:
         try:
             next(ref_gen)
-            print(f"\n[BŁĄD] ASM skończył pracę za wcześnie! Referencja oczekiwała więcej znaków.")
+            print(f"\n[ERROR] Assembly stopped early; the reference expected more output.")
             mismatch = True
         except StopIteration:
             pass
@@ -87,18 +87,18 @@ def run_streaming_test(n, axiom, rules_list):
     end_time = time.time()
 
     if mismatch or process.returncode != 0:
-        print(f"\n❌ TEST NIEZALICZONY. Kod błędu ASM: {process.returncode}")
+        print(f"\n❌ TEST FAILED. Assembly exit status: {process.returncode}")
         sys.exit(1)
     else:
         duration = end_time - start_time
         speed = (chars_checked / duration) / 1_000_000 if duration > 0 else 0
-        print(f"\n✅ SUKCES! Przetworzono {chars_checked} znaków w {duration:.2f}s ({speed:.2f} mln znaków/s).")
+        print(f"\n✅ SUCCESS! Processed {chars_checked} characters in {duration:.2f}s ({speed:.2f} million characters/s).")
 
 if __name__ == "__main__":
     # Test eksplozji (System Algae)
-    # Dla n=26 wygeneruje 242 786 znaków (szybki test)
-    # Dla n=32 wygeneruje 7 049 123 znaków
-    # Możesz tu bezpiecznie wpisać większe n, np. 35, jeśli chcesz solidnie obciążyć procesor
+    # At n=26 this generates 242,786 characters (quick test).
+    # At n=32 this generates 7,049,123 characters.
+    # Increase n (for example, to 35) for a heavier CPU load.
 
     AXIOM = "A"
     RULES = ["AAB", "BAB"]

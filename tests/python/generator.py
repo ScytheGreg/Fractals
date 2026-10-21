@@ -4,19 +4,19 @@ import argparse
 import string
 
 def generate_random_test(num_rules, axiom_len, max_rule_len):
-    # Używamy bezpiecznych, widocznych znaków ASCII (od '!' do '~', pomijając znaki specjalne)
+    # Use safe, visible ASCII characters ('!' through '~'), excluding special characters.
     alphabet = [c for c in string.ascii_letters + string.digits + "+-=[]{}()"]
     random.shuffle(alphabet)
 
-    # Generowanie aksjomatu (ciągu startowego)
+    # Generate the axiom (starting string).
     axiom = "".join(random.choices(alphabet, k=axiom_len))
 
-    # Wybieramy symbole, które będą miały swoje reguły
+    # Choose symbols that will have replacement rules.
     rule_chars = random.sample(alphabet, min(num_rules, len(alphabet)))
 
     rules = []
     for char in rule_chars:
-        # Losowa długość ciągu zastępującego (może być 0 dla pustej reguły)
+        # Choose a random replacement length (zero creates an empty rule).
         r_len = random.randint(0, max_rule_len)
         replacement = "".join(random.choices(alphabet, k=r_len))
         rules.append(f"{char}{replacement}")
@@ -24,8 +24,8 @@ def generate_random_test(num_rules, axiom_len, max_rule_len):
     return axiom, rules
 
 def generate_deep_stack_test(depth):
-    # Generuje zamknięty cykl permutacji: A -> B -> C -> ... -> A
-    # Rozmiar wyjścia to zawsze 1 bajt, ale stos DFS idzie liniowo w dół
+    # Generate a closed permutation cycle: A -> B -> C -> ... -> A.
+    # Output is always one byte, while DFS stack depth grows linearly.
     alphabet = list(string.ascii_uppercase)
     rules = []
     for i in range(len(alphabet)):
@@ -34,7 +34,7 @@ def generate_deep_stack_test(depth):
     return alphabet[0], rules
 
 def generate_explosion_test():
-    # Klasyczna eksplozja: każdy znak podwaja lub potraja długość
+    # Classic growth pattern: each symbol doubles or triples the string length.
     axiom = "X"
     rules = [
         "XFX+F-F+X",
@@ -45,12 +45,12 @@ def generate_explosion_test():
     return axiom, rules
 
 def main():
-    parser = argparse.ArgumentParser(description="Generator testów dla L-systemów (discrete_fractal)")
-    parser.add_argument("--mode", choices=["random", "deep", "explosion"], default="random", help="Tryb generowania")
-    parser.add_argument("--rules", type=int, default=10, help="Liczba reguł (dla trybu random)")
-    parser.add_argument("--axiom-len", type=int, default=5, help="Długość ciągu startowego (dla trybu random)")
-    parser.add_argument("--max-rule-len", type=int, default=4, help="Maksymalna długość prawej strony reguły")
-    parser.add_argument("--seed", type=int, default=None, help="Ziarno generatora losowego (powtarzalność)")
+    parser = argparse.ArgumentParser(description="Test generator for L-systems (discrete_fractal)")
+    parser.add_argument("--mode", choices=["random", "deep", "explosion"], default="random", help="Generation mode")
+    parser.add_argument("--rules", type=int, default=10, help="Number of rules (random mode)")
+    parser.add_argument("--axiom-len", type=int, default=5, help="Starting string length (random mode)")
+    parser.add_argument("--max-rule-len", type=int, default=4, help="Maximum replacement string length")
+    parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
 
     args = parser.parse_args()
 
@@ -64,7 +64,7 @@ def main():
     elif args.mode == "explosion":
         axiom, rules = generate_explosion_test()
 
-    # Wypisanie gotowego testu na standardowe wyjście
+    # Write the generated test to standard output.
     print(axiom)
     for rule in rules:
         print(rule)
